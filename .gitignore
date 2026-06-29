@@ -39,3 +39,4 @@ workdir/
 *.tmp
 *.bak
 *.swp
+cleanup.ps1
