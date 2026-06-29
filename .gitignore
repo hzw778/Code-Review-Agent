@@ -26,8 +26,10 @@ application-local.yml
 application-prod.yml
 application-secret.yml
 
-# ========== 个人笔记（不上传 GitHub） ==========
+# ========== 个人笔记与开发文档（不上传 GitHub） ==========
 Code-Review-Agent笔记.md
+agent.md
+开发手册.md
 
 # ========== 运行时工作目录（git clone 的仓库存放处） ==========
 workdir/
