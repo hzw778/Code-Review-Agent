@@ -1,4 +1,4 @@
-# Code Review Agent 开发规范（agent.md）
+﻿# Code Review Agent 开发规范（agent.md）
 
 > 本文件是 AI 助手（即我）在开发本项目时必须严格遵守的规范。
 > 任何阶段的开发、代码输出、教学讲解都必须遵循以下规则。
@@ -42,6 +42,7 @@
 - 遇到**核心技术点**（如 AST 遍历、Agent Loop、RAG 检索、Reflection 等），在 `Code-Review-Agent笔记.md` 中记录。
 - 笔记内容包括：核心概念、关键代码片段、逻辑讲解、踩坑提示。
 - 笔记不是流水账，只记重要技术点。
+- **注意：笔记文件不上传 GitHub，已在 .gitignore 中忽略。**
 
 ### 规则6：代码质量要求
 - 所有 Java 代码遵循阿里巴巴 Java 开发手册风格。
@@ -52,8 +53,68 @@
 
 ### 规则7：项目结构约束
 - 严格遵守项目目录结构，不随意新增包。
-- 分层职责清晰：controller 只做参数校验和转发，service 做业务，repository 做数据访问。
-- 工具类放 tool 包，实体放 entity 包，不要混放。
+- 分层职责清晰：controller 只做参数校验和转发，service 做业务（接口在 service 包，实现在 service/impl 包），repository 做数据访问。
+- 工具类放 tool 包，实体放 repository/entity 包，不要混放。
+- **数据访问层使用 JPA Repository，不使用 MyBatis Mapper。**
+
+### 规则8：日志规范（重要）
+
+本项目要求**详细的中文日志**，让开发者能通过日志完整追踪数据流转过程。
+
+#### 8.1 日志框架
+- 使用 Spring Boot 默认的 SLF4J + Logback。
+- 使用 `@Slf4j` 注解（Lombok）或 `LoggerFactory.getLogger()` 获取日志对象。
+
+#### 8.2 日志级别使用规范
+| 级别 | 使用场景 | 示例 |
+|------|---------|------|
+| ERROR | 系统错误、异常捕获、不可恢复的故障 | `log.error("Git仓库克隆失败，仓库地址：{}", remoteUrl, e);` |
+| WARN | 可恢复的异常、降级处理、业务警告 | `log.warn("AST解析失败，文件可能不是有效Java文件：{}", filePath);` |
+| INFO | 关键业务节点、数据流转、接口调用 | `log.info("开始审查仓库[{}]的提交[{}]", repoName, commitId);` |
+| DEBUG | 调试信息、中间结果、详细参数 | `log.debug("AST检测结果：共发现{}个问题", issues.size());` |
+| TRACE | 极细粒度的执行追踪 | `log.trace("Visitor访问节点类型：{}", node.getClass().getSimpleName());` |
+
+#### 8.3 日志内容要求（中文，详细）
+- **接口入口**：记录请求方法、路径、关键参数。
+  ```java
+  log.info("[接口入口] POST /review/start - 仓库ID={}, 提交ID={}", repoId, commitId);
+  ```
+- **数据流转**：记录数据在层与层之间的传递。
+  ```java
+  log.info("[数据流转] Controller -> Service：仓库ID={}, 提交ID={}", repoId, commitId);
+  log.info("[数据流转] Service -> GitOperationService：开始获取diff, commitId={}", commitId);
+  log.info("[数据流转] GitOperationService 返回：diff包含{}个文件变更", diffFiles.size());
+  ```
+- **工具调用**：Agent 每次调用工具时记录工具名、入参、出参。
+  ```java
+  log.info("[工具调用] 调用 AstAnalysisTool - 入参：文件路径={}", filePath);
+  log.info("[工具调用] AstAnalysisTool 返回 - 检测到{}个问题", results.size());
+  ```
+- **LLM 调用**：记录 LLM 请求和响应的关键信息（不记录完整 prompt，避免日志过大）。
+  ```java
+  log.info("[LLM调用] 请求LLM进行任务分类, 用户输入长度={}", input.length());
+  log.info("[LLM调用] LLM返回分类结果：{}", taskType);
+  ```
+- **异常处理**：记录异常的完整堆栈和上下文。
+  ```java
+  log.error("[异常] Git操作失败 - 仓库:{}, 操作:clone, 原因:{}", repoName, e.getMessage(), e);
+  ```
+- **耗时统计**：关键操作的耗时。
+  ```java
+  long start = System.currentTimeMillis();
+  // ... 业务操作
+  log.info("[耗时] AST分析完成, 文件:{}, 耗时:{}ms", filePath, System.currentTimeMillis() - start);
+  ```
+
+#### 8.4 日志格式规范
+- 使用方括号标记日志阶段：`[接口入口]`、`[数据流转]`、`[工具调用]`、`[LLM调用]`、`[异常]`、`[耗时]`
+- 使用 `{}` 占位符，不要用字符串拼接。
+- 日志内容用中文描述，参数值可以是英文。
+- 关键业务流水号（如 reviewId、commitId）要在日志中贯穿，便于追踪。
+
+#### 8.5 敏感信息脱敏
+- 日志中**禁止打印**：API Key、数据库密码、用户敏感数据。
+- 代码内容日志只打印文件路径和行号，不打印完整代码。
 
 ---
 
@@ -72,6 +133,7 @@
 | 向量库 | Elasticsearch | - |
 | Git 操作 | JGit | 6.8.0 |
 | AST 解析 | JavaParser | 3.25.8 |
+| 日志 | SLF4J + Logback | Spring Boot 默认 |
 | 构建 | Maven | - |
 
 ---
@@ -100,6 +162,7 @@
 - 禁止创建与项目无关的文件
 - 禁止在代码中使用 emoji（除非用户要求）
 - 禁止忽略异常处理
+- 禁止在日志中打印敏感信息（API Key、密码等）
 
 ---
 
@@ -133,13 +196,32 @@ feat: 完成阶段2 Git仓库管理与diff解析
 
 ---
 
-## 七、阶段验收标准
+## 七、GitHub 上传规范
+
+### 可以上传的文件
+- 项目源代码（src 下的 .java、.html、.css、.js）
+- 项目配置文件（pom.xml、application.yml — 但需脱敏）
+- 项目文档（agent.md、开发手册.md）
+- .gitignore
+
+### 禁止上传的文件
+- 个人笔记（Code-Review-Agent笔记.md）— 已在 .gitignore 忽略
+- 敏感配置（application-local.yml 等含真实密码/密钥的文件）
+- 编译产物（target/ 目录）
+- IDE 配置（.idea/、*.iml）
+- 运行时工作目录（workdir/）
+- 日志文件（logs/）
+
+---
+
+## 八、阶段验收标准
 
 每个阶段完成的标志：
 1. 开发手册中所有子任务已打勾
 2. 功能可以通过接口/前端验证
 3. 核心代码有注释
 4. 核心技术点已记录到笔记
-5. 代码已提交到 Git
+5. 关键数据流转有日志输出
+6. 代码已提交到 Git
 
-满足以上 5 点，才能进入下一阶段。
+满足以上 6 点，才能进入下一阶段。

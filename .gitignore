@@ -1,22 +1,41 @@
-﻿# Maven
+﻿# ========== 编译产物 ==========
 target/
+build/
 *.class
 
-# IDE
+# ========== IDE 配置 ==========
 .idea/
 *.iml
 *.iws
 *.ipr
 .vscode/
+.settings/
+.project
+.classpath
 
-# OS
+# ========== 操作系统 ==========
 .DS_Store
 Thumbs.db
 
-# Logs
+# ========== 日志 ==========
 *.log
 logs/
 
-# Project specific
+# ========== 敏感配置（含真实密码/密钥，禁止上传） ==========
 application-local.yml
+application-prod.yml
+application-secret.yml
+
+# ========== 个人笔记（不上传 GitHub） ==========
+Code-Review-Agent笔记.md
+
+# ========== 运行时工作目录（git clone 的仓库存放处） ==========
 workdir/
+
+# ========== Maven wrapper ==========
+.mvn/wrapper/maven-wrapper.jar
+
+# ========== 临时文件 ==========
+*.tmp
+*.bak
+*.swp
