@@ -1,4 +1,4 @@
-﻿package com.codereview.agent.model;
+package com.codereview.agent.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

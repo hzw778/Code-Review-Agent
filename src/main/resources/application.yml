@@ -1,1 +1,60 @@
-﻿
+﻿spring:
+  application:
+    name: code-review-agent
+  profiles:
+    active: local
+  # ========== Spring AI 配置（调用 GLM 大模型） ==========
+  ai:
+    openai:
+      base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${LLM_API_KEY:your-api-key-here}
+      chat:
+        model: ${LLM_MODEL:glm-4.5-air}
+        temperature: 0.7
+        timeout: 120s
+      embedding:
+        model: text-embedding-v3
+    vectorstore:
+      elasticsearch:
+        index-name: code-review-vector
+        initialize-schema: true
+
+  # ========== Elasticsearch 配置 ==========
+  elasticsearch:
+    uris: ${ES_URIS:http://localhost:9200}
+    username: ${ES_USERNAME:elastic}
+    password: ${ES_PASSWORD:your-password-here}
+
+  # ========== Redis 配置 ==========
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      repositories:
+        enabled: false
+
+  # ========== MySQL 配置 ==========
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/code_review_agent?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+# ========== 应用自定义配置 ==========
+app:
+  workdir: ${APP_WORKDIR:./workdir}
+  agent:
+    max-loop: 10
+
+# ========== 日志配置 ==========
+logging:
+  level:
+    root: INFO
+    com.codereview.agent: DEBUG
+    org.springframework.ai: INFO

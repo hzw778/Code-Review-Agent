@@ -1,4 +1,4 @@
-﻿package com.codereview.agent.exception;
+package com.codereview.agent.exception;
 
 import com.codereview.agent.model.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -10,16 +10,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.stream.Collectors;
 
-/**
- * 全局异常处理器
- * <p>
- * 拦截所有 Controller 抛出的异常，统一转为 ApiResponse 格式返回。
- * 这样前端永远收到结构化的 JSON 响应，便于处理。
- * </p>
- *
- * @author CodeReviewAgent
- * @date 2026-06-29
- */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
