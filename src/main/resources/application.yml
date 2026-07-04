@@ -1,4 +1,4 @@
-﻿spring:
+spring:
   application:
     name: code-review-agent
   profiles:
@@ -9,15 +9,18 @@
       base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       api-key: ${LLM_API_KEY:your-api-key-here}
       chat:
-        model: ${LLM_MODEL:glm-4.5-air}
-        temperature: 0.7
-        timeout: 120s
+        completions-path: /chat/completions
+        options:
+          model: ${LLM_MODEL:glm-4.5-air}
+          temperature: 0.7
       embedding:
-        model: text-embedding-v3
+        embeddings-path: /embeddings
+        options:
+          model: text-embedding-v3
     vectorstore:
       elasticsearch:
+        initialize-schema: false
         index-name: code-review-vector
-        initialize-schema: true
 
   # ========== Elasticsearch 配置 ==========
   elasticsearch:
