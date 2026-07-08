@@ -34,8 +34,11 @@ agent.md
 # ========== 运行时工作目录（git clone 的仓库存放处） ==========
 workdir/
 
-# ========== 前端依赖（npx http-server 会下载） ==========
+# ========== 前端依赖 ==========
 node_modules/
+
+# ========== 前端构建产物 ==========
+dist/
 
 # ========== Maven wrapper ==========
 .mvn/wrapper/maven-wrapper.jar

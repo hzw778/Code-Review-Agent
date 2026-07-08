@@ -854,3 +854,5 @@ body{
   .repo-row{ grid-template-columns: 30px 1fr; }
   .repo-row__type, .repo-row__status, .repo-row__actions{ grid-column: 2; }
 }
+
+[v-cloak]{ display:none !important; }
