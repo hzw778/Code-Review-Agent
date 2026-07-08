@@ -1,5 +1,5 @@
 <template>
-  <section class="tab-panel is-active">
+  <section class="tab-panel">
     <div class="card">
       <header class="card__head">
         <span class="tag">REPO</span>

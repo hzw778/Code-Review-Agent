@@ -1,5 +1,5 @@
 <template>
-  <section class="tab-panel is-active">
+  <section class="tab-panel">
     <!-- ============== Card 1：发起审查 ============== -->
     <div class="card">
       <header class="card__head">

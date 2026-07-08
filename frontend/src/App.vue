@@ -15,8 +15,9 @@
         <span class="topbar__sub">ReAct Console v2.0 · Vue</span>
       </div>
       <nav class="tabs">
-        <button v-for="t in tabsList" :key="t.key"
+        <button v-for="(t, i) in tabsList" :key="t.key"
           class="tab" :class="{ 'is-active': activeTab === t.key }"
+          :data-idx="String(i + 1).padStart(2, '0')"
           @click="activeTab = t.key">{{ t.label }}</button>
       </nav>
       <div class="topbar__right">
