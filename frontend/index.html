@@ -153,8 +153,29 @@
           <span class="tag">03</span>
           <h2 class="card__title">审查报告</h2>
           <span class="card__hint" id="resultMeta">—</span>
+          <button class="btn btn--ghost btn--sm" type="button" id="reloadReportBtn" hidden>刷新报告</button>
         </header>
-        <pre class="result" id="resultBody"></pre>
+        <!-- 统计条：按严重度展示问题数 -->
+        <div class="issue-stats" id="issueStats" hidden></div>
+        <!-- 结构化问题列表（按严重度分组） -->
+        <div class="issue-groups" id="issueGroups"></div>
+        <!-- 原始 Markdown 报告（兜底展示，issue 解析为空或需看全文时用） -->
+        <details class="result-raw">
+          <summary>原始报告（Markdown）</summary>
+          <pre class="result" id="resultBody"></pre>
+        </details>
+      </div>
+
+      <div class="card" id="historyCard">
+        <header class="card__head">
+          <span class="tag">04</span>
+          <h2 class="card__title">审查历史</h2>
+          <span class="card__hint">DB 持久化 · 重启不丢失</span>
+          <button class="btn btn--ghost btn--sm" type="button" id="loadHistoryBtn">加载历史</button>
+        </header>
+        <div class="history-list" id="historyList">
+          <p class="empty-hint">点击「加载历史」查看过往审查记录</p>
+        </div>
       </div>
     </section>
 

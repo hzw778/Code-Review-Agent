@@ -1,4 +1,4 @@
-﻿# ========== 编译产物 ==========
+# ========== 编译产物 ==========
 target/
 build/
 *.class
@@ -33,6 +33,9 @@ agent.md
 
 # ========== 运行时工作目录（git clone 的仓库存放处） ==========
 workdir/
+
+# ========== 前端依赖（npx http-server 会下载） ==========
+node_modules/
 
 # ========== Maven wrapper ==========
 .mvn/wrapper/maven-wrapper.jar

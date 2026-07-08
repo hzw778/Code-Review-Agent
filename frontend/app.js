@@ -45,6 +45,11 @@ const latestTxt = $('latestTxt');
 const resultCard = $('resultCard');
 const resultBody = $('resultBody');
 const resultMeta = $('resultMeta');
+const issueStats = $('issueStats');
+const issueGroups = $('issueGroups');
+const reloadReportBtn = $('reloadReportBtn');
+const historyList = $('historyList');
+const loadHistoryBtn = $('loadHistoryBtn');
 
 // Chat
 const chatBox = $('chatBox');
@@ -114,12 +119,14 @@ async function api(path, opts={}){
 }
 
 // ============== Tabs ==============
+function switchTab(name){
+  tabs.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('is-active', p.dataset.tab === name));
+}
 tabs.addEventListener('click', (e)=>{
   const tab = e.target.closest('.tab');
   if(!tab) return;
-  const name = tab.dataset.tab;
-  tabs.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-active', t === tab));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('is-active', p.dataset.tab === name));
+  switchTab(tab.dataset.tab);
 });
 
 // ============== Repo ==============
@@ -406,8 +413,73 @@ function formResetReview(){
   manualRepoUrl.value = '';
   manualCommitId.value = '';
   commitBox.innerHTML = '<div class="commit-empty">选择仓库并点击"加载 commits"</div>';
+  if(issueStats){ issueStats.hidden = true; issueStats.innerHTML = ''; }
+  if(issueGroups){ issueGroups.innerHTML = ''; }
+  if(reloadReportBtn) reloadReportBtn.hidden = true;
   resetTrajectory('review');
   setConn('idle', 'API IDLE');
+}
+
+// ============== 审查历史 ==============
+loadHistoryBtn.addEventListener('click', loadHistory);
+if(reloadReportBtn){
+  reloadReportBtn.addEventListener('click', async ()=>{
+    if(!currentTaskId) return;
+    showToast('刷新报告中...');
+    await loadReport(currentTaskId);
+  });
+}
+
+async function loadHistory(){
+  try{
+    loadHistoryBtn.disabled = true;
+    loadHistoryBtn.textContent = '加载中...';
+    const list = await api('/review/history');
+    renderHistory(list);
+  }catch(e){
+    showToast('加载历史失败: ' + e.message, 'error');
+  }finally{
+    loadHistoryBtn.disabled = false;
+    loadHistoryBtn.textContent = '加载历史';
+  }
+}
+
+function renderHistory(list){
+  if(!list || list.length === 0){
+    historyList.innerHTML = '<p class="empty-hint">暂无审查记录</p>';
+    return;
+  }
+  historyList.innerHTML = list.map(r => {
+    const sev = ['CRITICAL','MAJOR','MINOR','INFO'].map(s => {
+      const n = r[`${s.toLowerCase()}Count`] ?? 0;
+      return n > 0 ? `<span class="sev--${s}" style="color:var(--fg)">${s[0]}${n}</span>` : '';
+    }).join('');
+    const time = r.completedAt ? new Date(r.completedAt).toLocaleString('zh-CN') : (r.createdAt || '—');
+    const statusCls = r.status === 'SUCCESS' ? 'sev--INFO' : 'sev--CRITICAL';
+    return `
+      <div class="history-item" data-task-id="${esc(r.taskId)}">
+        <div class="history-item__sev">${sev || '<span style="color:var(--fg-mute)">—</span>'}</div>
+        <div class="history-item__main">
+          <div class="history-item__repo">${esc(r.repoName || r.repoUrl || '未知仓库')}</div>
+          <div class="history-item__meta">${esc((r.commitId || '').slice(0,8))} · ${r.issueCount ?? 0} 问题 · ${r.totalSteps ?? 0} 步 · ${esc(time)}</div>
+        </div>
+        <div class="history-item__status ${statusCls}">${esc(r.status)}</div>
+      </div>`;
+  }).join('');
+  historyList.querySelectorAll('.history-item').forEach(el => {
+    el.addEventListener('click', async ()=>{
+      const tid = el.dataset.taskId;
+      // 跳到审查 Tab 并展示该历史报告
+      switchTab('review');
+      currentTaskId = tid;
+      resultCard.hidden = false;
+      statusCard.hidden = true;
+      await loadReport(tid);
+      // 同时加载轨迹（历史任务内存可能已丢，失败忽略）
+      try{ const traj = await api(`/review/${tid}/steps`); renderTrajectoryReview(traj); }catch(_){}
+      resultCard.scrollIntoView({ behavior:'smooth', block:'start' });
+    });
+  });
 }
 
 // ============== Review polling ==============
@@ -442,8 +514,22 @@ async function loadFinalResult(){
     renderResult(data);
     const traj = await api(`/review/${currentTaskId}/steps`);
     renderTrajectoryReview(traj);
+    // 持久化报告可能比内存结果晚写入（异步落库），延迟拉取 DB 结构化报告
+    await loadReport(currentTaskId);
   }catch(e){
     showToast('获取结果失败: ' + e.message, 'error');
+  }
+}
+
+// 从 DB 拉取结构化报告（含 issue 分组），失败则降级到内存结果展示
+async function loadReport(taskId){
+  try{
+    const rep = await api(`/review/${taskId}/report`);
+    renderReport(rep);
+    if(reloadReportBtn) reloadReportBtn.hidden = false;
+  }catch(e){
+    // 报告尚未落库或 DB 异常，保持内存结果展示，不报错
+    console.warn('加载 DB 报告失败，使用内存结果:', e.message);
   }
 }
 
@@ -493,6 +579,7 @@ function renderStatus(data){
   else progressBar.style.background = 'linear-gradient(90deg, #b87d20, #e08a1f)';
 }
 
+// 渲染内存结果（审查完成即时展示，DB 报告加载前可见）
 function renderResult(data){
   resultCard.hidden = false;
   resultMeta.textContent = `共 ${data.totalSteps ?? 0} 步`;
@@ -500,6 +587,76 @@ function renderResult(data){
   const parsed = tryJson(txt);
   if(parsed) txt = fmtJson(parsed);
   resultBody.textContent = txt;
+}
+
+// 渲染 DB 结构化报告：统计条 + 按严重度分组的 issue 列表
+const SEV_ORDER = ['CRITICAL','MAJOR','MINOR','INFO'];
+const SEV_LABEL = { CRITICAL:'严重', MAJOR:'主要', MINOR:'次要', INFO:'提示' };
+
+function renderReport(rep){
+  if(!rep) return;
+  resultCard.hidden = false;
+  const issueCount = rep.issueCount ?? 0;
+  const cost = rep.totalCostMs != null ? `${(rep.totalCostMs/1000).toFixed(1)}s` : '—';
+  resultMeta.textContent = `${issueCount} 个问题 · ${rep.totalSteps ?? 0} 步 · ${cost}`;
+
+  // 原始 Markdown 兜底
+  let txt = rep.finalResult || '(空)';
+  const parsed = tryJson(txt);
+  if(parsed) txt = fmtJson(parsed);
+  resultBody.textContent = txt;
+
+  // 统计条
+  if(issueStats){
+    issueStats.hidden = issueCount === 0;
+    issueStats.innerHTML = SEV_ORDER.map(s => {
+      const n = rep[`${s.toLowerCase()}Count`] ?? 0;
+      if(n === 0) return '';
+      return `<span class="issue-stat sev--${s}"><span class="issue-stat__dot"></span>${SEV_LABEL[s]} <span class="issue-stat__n">${n}</span></span>`;
+    }).join('');
+  }
+
+  // 分组 issue
+  if(issueGroups){
+    const groups = rep.issues || {};
+    const hasAny = SEV_ORDER.some(s => (groups[s] || []).length > 0);
+    if(!hasAny){
+      issueGroups.innerHTML = `<div class="issue-empty">未解析出结构化问题（查看下方原始报告）</div>`;
+      return;
+    }
+    issueGroups.innerHTML = SEV_ORDER.map(s => {
+      const list = groups[s] || [];
+      if(list.length === 0) return '';
+      const items = list.map(it => `
+        <div class="issue-item">
+          <div class="issue-item__loc">
+            ${it.filePath ? `<span class="issue-item__file">${esc(it.filePath)}</span>${it.lineNumber != null ? `<span class="issue-item__line">L${esc(it.lineNumber)}</span>` : ''}` : ''}
+            ${it.ruleType ? `<span class="issue-item__rule">${esc(it.ruleType)}</span>` : ''}
+          </div>
+          <div class="issue-item__msg">${esc(it.message || '')}</div>
+          ${it.suggestion ? `<div class="issue-item__sug">${esc(it.suggestion)}</div>` : ''}
+        </div>`).join('');
+      return `
+        <div class="issue-group sev--${s}" data-sev="${s}">
+          <div class="issue-group__head">
+            <span class="issue-group__title sev--${s}">${SEV_LABEL[s]} · ${s}</span>
+            <span class="issue-group__count">${list.length}</span>
+            <span class="issue-group__chev"></span>
+          </div>
+          <div class="issue-group__body">${items}</div>
+        </div>`;
+    }).join('');
+    // 分组折叠
+    issueGroups.querySelectorAll('.issue-group__head').forEach(h => {
+      h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
+    });
+  }
+}
+
+// HTML 转义（防止 issue 文本里的 < > 破坏结构）
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ============== Trajectory (Review mode) ==============
@@ -785,7 +942,7 @@ function renderChatRefs(el, references){
       ${references.map(r => `
         <div class="chat-msg-ref">
           <span class="chat-msg-ref__kind" data-kind="${r.kind}">${r.kind}</span>
-          <span>${escapeHtml(r.title)} · score=${(r.score||0).toFixed(3)}</span>
+          <span>${escapeHtml(r.title)} · score=${(r.score||0).toFixed(3)}${r.lineNumbers ? ' · 行 ' + escapeHtml(r.lineNumbers) : ''}</span>
         </div>`).join('')}
     </div>`;
   // 插到 bubble 末尾（在 cursor 之前）

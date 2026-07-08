@@ -69,8 +69,11 @@ public class ReviewAgentLoop {
             工作流程：
             1. 先用 GitDiffTool 获取用户提交的代码变更
             2. 对 diff 中的 Java 文件用 AstAnalysisTool 分析代码问题
-            3. 对 AST 发现的问题用 RagSearchTool 检索相关规范
-            4. 综合所有信息，给出最终审查意见
+            3. 若需要查看文件上下文（如调用方/被调用方/配置文件），用 FileReadTool 读取相关文件
+            4. 对 AST 发现的问题用 RuleMatchTool 批量匹配规范（一次性拿所有问题的规范依据）；
+               若只有单个问题或需模糊查询规范，用 RagSearchTool 语义检索
+            5. 用 SimilarCodeTool 检索相似代码示例（给审查意见附带正确写法参考）
+            6. 综合所有信息，给出最终审查意见
 
             每一轮你必须返回以下 JSON 格式（不要返回其他任何内容）：
             {
@@ -86,6 +89,7 @@ public class ReviewAgentLoop {
             - 每轮只调用一个工具
             - 参数必须是合法 JSON
             - 不要编造工具名，只能用上面列出的工具
+            - 审查意见应包含：问题描述 + 规范依据 + 正确写法参考
             """;
 
     /**

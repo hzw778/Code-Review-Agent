@@ -2,9 +2,9 @@ package com.codereview.agent.agent;
 
 import com.codereview.agent.agent.model.RouterResult;
 import com.codereview.agent.agent.model.TaskType;
-import com.codereview.agent.rag.model.CodeSearchResult;
-import com.codereview.agent.rag.model.RuleSearchResult;
-import com.codereview.agent.tool.RagSearchTool;
+import com.codereview.agent.guardrail.GuardrailResult;
+import com.codereview.agent.guardrail.OutputGuardrail;
+import com.codereview.agent.guardrail.PromptInjectionDetector;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -41,29 +41,22 @@ public class ChatService {
 
     private final ReviewRouter reviewRouter;
     private final ChatClient chatClient;
-    private final RagSearchTool ragSearchTool;
+    private final CodeQaService codeQaService;
+    private final PromptInjectionDetector promptInjectionDetector;
+    private final OutputGuardrail outputGuardrail;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ChatService(ReviewRouter reviewRouter,
                        @Qualifier("chatClient") ChatClient chatClient,
-                       RagSearchTool ragSearchTool) {
+                       CodeQaService codeQaService,
+                       PromptInjectionDetector promptInjectionDetector,
+                       OutputGuardrail outputGuardrail) {
         this.reviewRouter = reviewRouter;
         this.chatClient = chatClient;
-        this.ragSearchTool = ragSearchTool;
+        this.codeQaService = codeQaService;
+        this.promptInjectionDetector = promptInjectionDetector;
+        this.outputGuardrail = outputGuardrail;
     }
-
-    /** CODE_QA 系统提示 */
-    private static final String QA_SYSTEM = """
-            你是 Java 代码规范助手。请基于下方检索到的【规范条目】和【代码示例】回答用户问题。
-            如果检索结果为空，请基于你自己的知识回答，并标注"未检索到相关规范"。
-            回答要简洁、可操作，必要时引用规范条目名称。
-
-            【规范条目】
-            %s
-
-            【代码示例】
-            %s
-            """;
 
     /** CHITCHAT 系统提示 */
     private static final String CHITCHAT_SYSTEM = "你是 Code Review Agent，一个友好的代码审查助手。请简洁回答。";
@@ -92,6 +85,21 @@ public class ChatService {
     public Flux<ChatStreamEvent> streamChat(String userInput) {
         long start = System.currentTimeMillis();
         log.info("[ChatService] 收到流式消息, 长度={}", userInput.length());
+
+        // 0. 输入护栏：在送 Router/LLM 前检测 prompt 注入
+        //    命中即拒绝处理，连 Router（qwen-flash）都不调用，省 token 也省时间
+        GuardrailResult inputGuard = promptInjectionDetector.detect(userInput);
+        if (inputGuard.blocked()) {
+            log.warn("[ChatService] 输入命中注入护栏, 拒绝处理: reason={}", inputGuard.reason());
+            Map<String, Object> blockMeta = new LinkedHashMap<>();
+            blockMeta.put("blocked", true);
+            blockMeta.put("reason", inputGuard.reason());
+            blockMeta.put("totalCostMs", System.currentTimeMillis() - start);
+            return Flux.just(
+                    ChatStreamEvent.meta(blockMeta),
+                    ChatStreamEvent.error("输入被安全护栏拦截: " + inputGuard.reason())
+            );
+        }
 
         List<Map<String, Object>> trace = new ArrayList<>();
         List<Map<String, Object>> references = new ArrayList<>();
@@ -128,44 +136,17 @@ public class ChatService {
                 systemPrompt = CHITCHAT_SYSTEM;
             }
             case CODE_QA -> {
-                long t1 = System.currentTimeMillis();
-                RagSearchTool.SearchResult sr;
+                // 委托给 CodeQaService：RAG 检索 + references 构造 + systemPrompt 拼装
+                CodeQaService.QaContext qa;
                 try {
-                    sr = ragSearchTool.searchAll(userInput);
+                    qa = codeQaService.handle(userInput);
                 } catch (Exception e) {
                     log.error("[ChatService] RAG 检索失败", e);
                     return Flux.just(ChatStreamEvent.meta(meta), ChatStreamEvent.error("RAG 检索失败: " + e.getMessage()));
                 }
-                long ragCost = System.currentTimeMillis() - t1;
-
-                // RAG trace：含完整的检索 query 和检索结果 JSON
-                Map<String, Object> ragTrace = traceStep("RagSearchTool",
-                        "规则=" + (sr.getRules() != null ? sr.getRules().size() : 0)
-                                + " 代码=" + (sr.getCodes() != null ? sr.getCodes().size() : 0),
-                        ragCost);
-                ragTrace.put("model", "text-embedding-v3 (ES KNN)");
-                ragTrace.put("query", userInput);
-                ragTrace.put("topK", 3);
-                ragTrace.put("similarityThreshold", 0.5);
-                ragTrace.put("ruleCount", sr.getRules() != null ? sr.getRules().size() : 0);
-                ragTrace.put("codeCount", sr.getCodes() != null ? sr.getCodes().size() : 0);
-                ragTrace.put("rules", sr.getRules());
-                ragTrace.put("codes", sr.getCodes());
-                trace.add(ragTrace);
-
-                if (sr.getRules() != null) {
-                    for (RuleSearchResult r : sr.getRules()) {
-                        references.add(refMap("rule", r.getRuleName(), r.getSource(), r.getScore(), r.getContent()));
-                    }
-                }
-                if (sr.getCodes() != null) {
-                    for (CodeSearchResult c : sr.getCodes()) {
-                        references.add(refMap("code", c.getClassName() + "#" + c.getMethodName(),
-                                c.getSource(), c.getScore(),
-                                c.getSignature() != null ? c.getSignature() : c.getContent()));
-                    }
-                }
-                systemPrompt = String.format(QA_SYSTEM, formatRules(sr.getRules()), formatCodes(sr.getCodes()));
+                references.addAll(qa.references());
+                trace.add(qa.trace());
+                systemPrompt = qa.systemPrompt();
             }
             case REVIEW -> {
                 String guide = """
@@ -213,7 +194,8 @@ public class ChatService {
 
         return Flux.concat(
                 Flux.just(ChatStreamEvent.meta(meta)),
-                tokenFlux.map(ChatStreamEvent::token)
+                // 输出护栏：每个 token 经脱敏后再发前端（覆盖完整 token 内的敏感串）
+                tokenFlux.map(t -> ChatStreamEvent.token(outputGuardrail.sanitize(t).sanitized()))
                         .doOnComplete(() -> {
                             long llmCost = System.currentTimeMillis() - llmStart;
                             llmTrace.put("costMs", llmCost);
@@ -245,40 +227,5 @@ public class ChatService {
         m.put("detail", detail);
         m.put("costMs", costMs);
         return m;
-    }
-
-    /** 引用项 */
-    private Map<String, Object> refMap(String kind, String title, String source, double score, String content) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("kind", kind);
-        m.put("title", title);
-        m.put("source", source);
-        m.put("score", score);
-        m.put("content", content != null && content.length() > 200 ? content.substring(0, 200) + "..." : content);
-        return m;
-    }
-
-    private String formatRules(List<RuleSearchResult> rules) {
-        if (rules == null || rules.isEmpty()) return "(无)";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < rules.size(); i++) {
-            RuleSearchResult r = rules.get(i);
-            sb.append(i + 1).append(". [").append(r.getRuleName()).append("] (score=")
-              .append(String.format("%.3f", r.getScore())).append(")\n")
-              .append(r.getContent()).append("\n\n");
-        }
-        return sb.toString();
-    }
-
-    private String formatCodes(List<CodeSearchResult> codes) {
-        if (codes == null || codes.isEmpty()) return "(无)";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < codes.size(); i++) {
-            CodeSearchResult c = codes.get(i);
-            sb.append(i + 1).append(". ").append(c.getClassName()).append("#").append(c.getMethodName())
-              .append(" (score=").append(String.format("%.3f", c.getScore())).append(")\n")
-              .append(c.getContent()).append("\n\n");
-        }
-        return sb.toString();
     }
 }

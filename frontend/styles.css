@@ -376,6 +376,104 @@ body{
 .result::-webkit-scrollbar{ width:8px; }
 .result::-webkit-scrollbar-thumb{ background: var(--border-strong); border-radius:4px; }
 
+/* ============== 审查报告：结构化 issue ============== */
+.result-raw{ margin-top: 14px; }
+.result-raw > summary{
+  cursor:pointer; user-select:none;
+  font-size:12px; color: var(--fg-mute);
+  padding: 8px 12px; border:1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-elev-2);
+  list-style: none;
+}
+.result-raw > summary::-webkit-details-marker{ display:none; }
+.result-raw > summary::before{ content:'▸ '; }
+.result-raw[open] > summary::before{ content:'▾ '; }
+.result-raw[open] > summary{ border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.result-raw > .result{ border-top:none; border-radius:0 0 var(--r-md) var(--r-md); max-height: 40vh; }
+
+/* 统计条 */
+.issue-stats{
+  display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;
+}
+.issue-stat{
+  display:inline-flex; align-items:center; gap:8px;
+  padding: 6px 12px; border-radius: 999px;
+  font-size:12px; font-weight:600;
+  border:1px solid var(--border); background: var(--bg-elev-2);
+}
+.issue-stat__dot{ width:8px; height:8px; border-radius:50%; }
+.issue-stat__n{ font-family: var(--mono); font-size:13px; }
+.sev--CRITICAL{ color:#ff5c7a; }
+.sev--CRITICAL .issue-stat__dot{ background:#ff5c7a; }
+.sev--MAJOR{ color:#ffa940; }
+.sev--MAJOR .issue-stat__dot{ background:#ffa940; }
+.sev--MINOR{ color:#ffd666; }
+.sev--MINOR .issue-stat__dot{ background:#ffd666; }
+.sev--INFO{ color:#6aa6ff; }
+.sev--INFO .issue-stat__dot{ background:#6aa6ff; }
+
+/* issue 分组 */
+.issue-groups{ display:flex; flex-direction:column; gap:14px; }
+.issue-group{
+  border:1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-elev-2); overflow:hidden;
+}
+.issue-group__head{
+  display:flex; align-items:center; gap:10px;
+  padding: 10px 14px; cursor:pointer; user-select:none;
+  border-bottom:1px solid transparent;
+}
+.issue-group__head:hover{ background: var(--bg-elev-1); }
+.issue-group__title{ font-size:13px; font-weight:700; letter-spacing:.3px; }
+.issue-group__count{
+  font-family: var(--mono); font-size:12px;
+  padding: 1px 8px; border-radius: 999px; background: var(--bg-elev-1);
+}
+.issue-group__chev{ margin-left:auto; color: var(--fg-mute); font-size:12px; }
+.issue-group.collapsed .issue-group__body{ display:none; }
+.issue-group.collapsed .issue-group__chev::before{ content:'▸'; }
+.issue-group:not(.collapsed) .issue-group__chev::before{ content:'▾'; }
+.issue-group__body{ display:flex; flex-direction:column; }
+.issue-item{
+  border-top:1px solid var(--border);
+  padding: 12px 14px;
+}
+.issue-item__loc{
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  font-size:12px; color: var(--fg-mute); margin-bottom:6px;
+}
+.issue-item__file{ font-family: var(--mono); color: var(--fg); }
+.issue-item__line{ padding:1px 6px; border-radius:4px; background: var(--bg-elev-1); }
+.issue-item__rule{ padding:1px 6px; border-radius:4px; border:1px solid var(--border); }
+.issue-item__msg{ font-size:13px; line-height:1.6; color: var(--fg); }
+.issue-item__sug{
+  margin-top:8px; padding: 8px 10px; border-radius: var(--r-sm);
+  background: rgba(106,166,255,.08); border:1px solid rgba(106,166,255,.25);
+  font-size:12px; line-height:1.6; color: var(--fg);
+}
+.issue-item__sug::before{ content:'💡 建议 · '; color:#6aa6ff; font-weight:700; }
+.issue-empty{
+  padding: 24px; text-align:center; color: var(--fg-mute); font-size:13px;
+}
+
+/* ============== 审查历史 ============== */
+.history-list{ display:flex; flex-direction:column; gap:8px; }
+.history-item{
+  display:grid; grid-template-columns: auto 1fr auto; gap:12px; align-items:center;
+  padding: 10px 14px; border:1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-elev-2); cursor:pointer; transition: border-color .15s;
+}
+.history-item:hover{ border-color: var(--border-strong); }
+.history-item__sev{
+  display:flex; gap:4px; font-family: var(--mono); font-size:11px;
+}
+.history-item__sev span{ padding:1px 5px; border-radius:4px; }
+.history-item__main{ min-width:0; }
+.history-item__repo{ font-size:13px; font-weight:600; }
+.history-item__meta{ font-size:11px; color: var(--fg-mute); margin-top:2px; }
+.history-item__status{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+.empty-hint{ padding: 18px; text-align:center; color: var(--fg-mute); font-size:13px; margin:0; }
+
 /* ============== Chat ============== */
 .chat-card{ display:flex; flex-direction:column; height: calc(100vh - 53px - 48px - 40px); min-height: 480px; }
 .chat-box{
