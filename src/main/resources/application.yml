@@ -3,8 +3,9 @@ spring:
     name: code-review-agent
   profiles:
     active: local
-  # ========== Spring AI 配置（调用 GLM 大模型） ==========
+  # ========== Spring AI 配置 ==========
   ai:
+    # 默认模型（glm-4.5-air）：用于最终回复（流式）
     openai:
       base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       api-key: ${LLM_API_KEY:your-api-key-here}
@@ -17,6 +18,17 @@ spring:
         embeddings-path: /embeddings
         options:
           model: text-embedding-v3
+    # 重试配置（embedding 网络抖动时自动重试）
+    retry:
+      max-attempts: 3
+      backoff:
+        initial-interval: 1000ms
+        multiplier: 2.0
+        max-interval: 10s
+    # 请求超时配置
+    openai.api:
+      read-timeout: 60s
+      connect-timeout: 10s
     vectorstore:
       elasticsearch:
         initialize-schema: false
@@ -54,6 +66,11 @@ app:
   workdir: ${APP_WORKDIR:./workdir}
   agent:
     max-loop: 10
+  # Router 专用轻量模型配置（qwen-flash）：用于内部分类，非流式
+  router-model:
+    base-url: ${ROUTER_BASE_URL:https://ws-x8gbxzq7h6o17d3i.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
+    api-key: ${LLM_API_KEY:your-api-key-here}
+    model: ${ROUTER_MODEL:qwen-flash-2025-07-28}
 
 # ========== 日志配置 ==========
 logging:

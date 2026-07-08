@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Code Review Agent · Console</title>
+<link rel="stylesheet" href="styles.css?v=10" />
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="bg-glow bg-glow--a"></div>
+<div class="bg-glow bg-glow--b"></div>
+
+<!-- ============== Topbar ============== -->
+<header class="topbar">
+  <div class="topbar__left">
+    <div class="logo">
+      <span class="logo__mark">◈</span>
+      <span class="logo__text">code.review<span class="logo__dim">/agent</span></span>
+    </div>
+    <span class="topbar__sep"></span>
+    <span class="topbar__sub">ReAct Console v1.1</span>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab is-active" data-tab="review">代码审查</button>
+    <button class="tab" data-tab="chat">智能问答</button>
+    <button class="tab" data-tab="repo">仓库管理</button>
+  </nav>
+  <div class="topbar__right">
+    <div class="conn" id="connBadge" data-state="idle">
+      <span class="conn__dot"></span><span class="conn__label">API IDLE</span>
+    </div>
+    <button class="btn btn--ghost btn--icon" id="toggleTrajectory" title="轨迹面板 (T)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4M3 6h18M3 18h18"/></svg>
+      <span>轨迹</span>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ============== Left: Repo Sidebar ============== -->
+  <aside class="repo-pane">
+    <header class="repo-pane__head">
+      <h3 class="repo-pane__title">仓库列表</h3>
+      <button class="btn btn--ghost btn--sm" id="refreshRepos" title="刷新">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+      </button>
+    </header>
+    <button class="btn btn--primary btn--block" id="addRepoBtn">+ 注册仓库</button>
+    <div class="repo-list" id="repoList">
+      <div class="repo-empty">暂无仓库</div>
+    </div>
+  </aside>
+
+  <!-- ============== Center: Main ============== -->
+  <section class="main-pane">
+
+    <!-- ====== Review Tab ====== -->
+    <section class="tab-panel is-active" data-tab="review">
+      <div class="card">
+        <header class="card__head">
+          <span class="tag">01</span>
+          <h2 class="card__title">发起审查</h2>
+          <span class="card__hint">选择仓库 → 选择 commit → 启动 Agent</span>
+        </header>
+
+        <div class="review-form">
+          <div class="field">
+            <span class="field__label">仓库</span>
+            <div class="select-row">
+              <select class="field__input field__select" id="reviewRepoSelect">
+                <option value="">-- 请选择仓库 --</option>
+              </select>
+              <button class="btn btn--ghost btn--sm" id="loadCommitsBtn">加载 commits</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field__label">commit 列表</span>
+            <div class="commit-box" id="commitBox">
+              <div class="commit-empty">选择仓库并点击"加载 commits"</div>
+            </div>
+          </div>
+
+          <div class="field" id="manualRepoField">
+            <span class="field__label">或直接填写 repoUrl + commitId</span>
+            <div class="select-row">
+              <input class="field__input" type="text" id="manualRepoUrl" placeholder="https://github.com/your/repo.git">
+              <input class="field__input" type="text" id="manualCommitId" placeholder="commitId" style="flex:0 0 160px;">
+            </div>
+          </div>
+
+          <div class="form__actions">
+            <button class="btn btn--primary" type="button" id="startReviewBtn">
+              <span class="btn__txt">启动 Agent</span>
+              <span class="btn__arrow">→</span>
+            </button>
+            <button class="btn btn--ghost" type="button" id="resetReviewBtn">重置</button>
+          </div>
+
+          <details class="agent-explainer">
+            <summary>启动 Agent 后会做什么？</summary>
+            <div class="agent-explainer__body">
+              <p>Agent 采用 <b>ReAct 模式</b>（Reasoning + Acting），循环执行以下步骤直到完成：</p>
+              <ol>
+                <li><b>GitDiffTool</b>：克隆仓库并获取该 commit 的代码变更（diff）</li>
+                <li><b>AstAnalysisTool</b>：对变更的 Java 文件做 AST 静态分析（空 catch、资源泄漏、方法过长等）</li>
+                <li><b>RagSearchTool</b>：检索 Java 规范知识库，找到与问题相关的规范条目</li>
+                <li><b>Finish</b>：LLM 综合以上信息，输出带规范引用的审查意见</li>
+                <li><b>Reflection</b>：LLM 自检，过滤误报和幻觉，输出最终报告</li>
+              </ol>
+              <p>每一步的思考、工具参数、返回结果都会实时显示在右侧"数据传输轨迹"面板。</p>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="card" id="statusCard" hidden>
+        <header class="card__head">
+          <span class="tag">02</span>
+          <h2 class="card__title">任务状态</h2>
+          <span class="card__hint" id="taskMeta">—</span>
+        </header>
+        <div class="status-grid">
+          <div class="metric">
+            <span class="metric__label">STATUS</span>
+            <span class="metric__value metric__value--status" id="mStatus">PENDING</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">ROUND</span>
+            <span class="metric__value" id="mRound">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">STEPS</span>
+            <span class="metric__value" id="mSteps">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">LAST ACTION</span>
+            <span class="metric__value metric__value--mono" id="mAction">—</span>
+          </div>
+        </div>
+        <div class="progress"><div class="progress__bar" id="progressBar"></div></div>
+        <div class="latest" id="latestThought" hidden>
+          <span class="latest__cap">LLM · thought</span>
+          <p class="latest__txt" id="latestTxt">—</p>
+        </div>
+      </div>
+
+      <div class="card" id="resultCard" hidden>
+        <header class="card__head">
+          <span class="tag">03</span>
+          <h2 class="card__title">审查报告</h2>
+          <span class="card__hint" id="resultMeta">—</span>
+        </header>
+        <pre class="result" id="resultBody"></pre>
+      </div>
+    </section>
+
+    <!-- ====== Chat Tab ====== -->
+    <section class="tab-panel" data-tab="chat">
+      <div class="card chat-card">
+        <header class="card__head">
+          <span class="tag">CHAT</span>
+          <h2 class="card__title">智能问答</h2>
+          <span class="card__hint">Router 自动分类：闲聊 / 代码问答 / 审查引导</span>
+          <button class="btn btn--ghost btn--sm" type="button" id="chatClearBtn" title="清空当前对话">清空</button>
+        </header>
+        <div class="chat-box" id="chatBox">
+          <div class="chat-empty">
+            <span class="chat-empty__mark">◐</span>
+            <p>问点什么吧</p>
+            <span>支持闲聊、Java 规范问答、审查引导（Router 自动分类）</span>
+          </div>
+        </div>
+        <form class="chat-input-row" id="chatForm" autocomplete="off">
+          <input class="field__input chat-input" type="text" id="chatInput" placeholder="如：什么是 try-with-resources？/ 帮我审查这个 commit" required>
+          <button class="btn btn--primary" type="submit" id="chatSendBtn">
+            <span>发送</span>
+            <span class="btn__arrow">→</span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ====== Repo Tab ====== -->
+    <section class="tab-panel" data-tab="repo">
+      <div class="card">
+        <header class="card__head">
+          <span class="tag">REPO</span>
+          <h2 class="card__title">注册新仓库</h2>
+          <span class="card__hint">注册后可克隆、查看 commit、发起审查</span>
+        </header>
+        <form id="repoForm" class="form" autocomplete="off">
+          <label class="field">
+            <span class="field__label">name（仓库名，唯一）</span>
+            <input class="field__input" type="text" name="name" required>
+          </label>
+          <label class="field">
+            <span class="field__label">url（仓库地址）</span>
+            <input class="field__input" type="text" name="url" placeholder="https://github.com/your/repo.git" required>
+          </label>
+          <div class="select-row">
+            <label class="field" style="flex:0 0 140px;">
+              <span class="field__label">type</span>
+              <select class="field__input" name="type">
+                <option value="REMOTE">REMOTE</option>
+                <option value="LOCAL">LOCAL</option>
+              </select>
+            </label>
+            <label class="field" style="flex:1;">
+              <span class="field__label">defaultBranch</span>
+              <input class="field__input" type="text" name="defaultBranch" value="main">
+            </label>
+          </div>
+          <div class="form__actions">
+            <button class="btn btn--primary" type="submit"><span>注册</span><span class="btn__arrow">→</span></button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <header class="card__head">
+          <span class="tag">LIST</span>
+          <h2 class="card__title">已注册仓库</h2>
+          <span class="card__hint">点击仓库可克隆 / 删除 / 发起审查</span>
+        </header>
+        <div class="repo-table" id="repoTable">
+          <div class="repo-empty">暂无仓库</div>
+        </div>
+      </div>
+    </section>
+
+  </section>
+
+  <!-- ============== Right: Trajectory ============== -->
+  <aside class="side-pane" id="sidePane" data-open="true">
+    <div class="side-pane__inner">
+      <header class="side-pane__head">
+        <div>
+          <h3 class="side-pane__title">数据传输轨迹</h3>
+          <p class="side-pane__sub" id="trajSubtitle">每一轮 LLM 思考 · 工具调用 · 返回数据</p>
+        </div>
+        <button class="btn btn--icon btn--ghost" id="closeSide" aria-label="关闭面板">×</button>
+      </header>
+
+      <div class="side-pane__toolbar">
+        <span class="pill pill--info" id="trajCount">0 步</span>
+        <span class="pill" id="trajStatus">未启动</span>
+        <button class="btn btn--ghost btn--sm" id="refreshTraj" title="手动刷新">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </div>
+
+      <div class="traj-list" id="trajList">
+        <div class="traj-empty" id="trajEmpty">
+          <span class="traj-empty__mark">∅</span>
+          <p>暂无执行轨迹</p>
+          <span>发起审查或发送聊天消息后，每一步数据传输会按时间顺序展开</span>
+        </div>
+      </div>
+
+      <footer class="side-pane__foot">
+        <span class="kv"><span class="kv__k">API</span><span class="kv__v">http://localhost:8080</span></span>
+      </footer>
+    </div>
+  </aside>
+</main>
+
+<!-- ============== Modal: Register Repo (quick) ============== -->
+<div class="modal-mask" id="repoModal" hidden>
+  <div class="modal">
+    <header class="modal__head">
+      <h3>注册仓库</h3>
+      <button class="btn btn--icon btn--ghost" id="closeRepoModal">×</button>
+    </header>
+    <div class="modal__body" id="repoModalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js?v=10"></script>
+</body>
+</html>
