@@ -5,9 +5,14 @@ import com.codereview.agent.agent.model.TaskType;
 import com.codereview.agent.guardrail.GuardrailResult;
 import com.codereview.agent.guardrail.OutputGuardrail;
 import com.codereview.agent.guardrail.PromptInjectionDetector;
+import com.codereview.agent.repository.entity.ChatMessage;
+import com.codereview.agent.repository.entity.ChatSession;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -27,6 +32,12 @@ import java.util.Map;
  *   <li>REVIEW：返回引导提示</li>
  * </ul>
  *
+ * <p>多轮记忆架构（Redis + MySQL 双层）：
+ * <ul>
+ *   <li>Redis（热）：ChatMemoryService 维护滑动窗口 10 轮，LLM 记忆读取 O(1)</li>
+ *   <li>MySQL（冷）：ChatSessionService 全量持久化，历史回看用</li>
+ * </ul>
+ *
  * <p>模型分工：
  * <ul>
  *   <li>qwen-flash（非流式）：Router 分类（内部决策）</li>
@@ -44,18 +55,24 @@ public class ChatService {
     private final CodeQaService codeQaService;
     private final PromptInjectionDetector promptInjectionDetector;
     private final OutputGuardrail outputGuardrail;
+    private final ChatSessionService chatSessionService;
+    private final ChatMemoryService chatMemoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ChatService(ReviewRouter reviewRouter,
                        @Qualifier("chatClient") ChatClient chatClient,
                        CodeQaService codeQaService,
                        PromptInjectionDetector promptInjectionDetector,
-                       OutputGuardrail outputGuardrail) {
+                       OutputGuardrail outputGuardrail,
+                       ChatSessionService chatSessionService,
+                       ChatMemoryService chatMemoryService) {
         this.reviewRouter = reviewRouter;
         this.chatClient = chatClient;
         this.codeQaService = codeQaService;
         this.promptInjectionDetector = promptInjectionDetector;
         this.outputGuardrail = outputGuardrail;
+        this.chatSessionService = chatSessionService;
+        this.chatMemoryService = chatMemoryService;
     }
 
     /** CHITCHAT 系统提示 */
@@ -77,17 +94,19 @@ public class ChatService {
      *
      * <p>事件序列：
      * <ol>
-     *   <li>META：routerType / references / trace（前端先渲染元数据）</li>
+     *   <li>META：sessionId / routerType / references / trace（前端先渲染元数据）</li>
      *   <li>TOKEN * N：LLM 流式输出的 token（前端拼接显示打字机效果）</li>
      *   <li>DONE：totalCostMs 等汇总信息</li>
      * </ol>
+     *
+     * @param userInput 用户输入
+     * @param sessionId 会话 ID（null 表示新建会话）
      */
-    public Flux<ChatStreamEvent> streamChat(String userInput) {
+    public Flux<ChatStreamEvent> streamChat(String userInput, String sessionId) {
         long start = System.currentTimeMillis();
-        log.info("[ChatService] 收到流式消息, 长度={}", userInput.length());
+        log.info("[ChatService] 收到流式消息, 长度={}, sessionId={}", userInput.length(), sessionId);
 
         // 0. 输入护栏：在送 Router/LLM 前检测 prompt 注入
-        //    命中即拒绝处理，连 Router（qwen-flash）都不调用，省 token 也省时间
         GuardrailResult inputGuard = promptInjectionDetector.detect(userInput);
         if (inputGuard.blocked()) {
             log.warn("[ChatService] 输入命中注入护栏, 拒绝处理: reason={}", inputGuard.reason());
@@ -101,10 +120,35 @@ public class ChatService {
             );
         }
 
+        // 1. 会话管理：sessionId 为空则创建新会话，否则复用已有会话
+        String effectiveSessionId;
+        ChatSession session;
+        if (sessionId == null || sessionId.isBlank()) {
+            session = chatSessionService.createSession(userInput);
+            effectiveSessionId = session.getSessionId();
+            log.info("[ChatService] 创建新会话, sessionId={}, title={}", effectiveSessionId, session.getTitle());
+        } else {
+            session = chatSessionService.getSession(sessionId).orElse(null);
+            if (session == null) {
+                session = chatSessionService.createSession(userInput);
+                effectiveSessionId = session.getSessionId();
+                log.warn("[ChatService] sessionId={} 无效, 已新建会话 {}", sessionId, effectiveSessionId);
+            } else {
+                effectiveSessionId = sessionId;
+            }
+        }
+
+        // 2. 保存用户消息（双写 Redis 滑动窗口 + MySQL 全量）
+        chatMemoryService.saveUserMessage(effectiveSessionId, userInput);
+        chatSessionService.incrementMessageCount(effectiveSessionId);
+
+        // 3. 加载最近 10 轮历史消息（Redis 优先，未命中回填 MySQL），用于多轮记忆
+        List<ChatMessage> history = chatMemoryService.getMessagesForLlm(effectiveSessionId);
+
         List<Map<String, Object>> trace = new ArrayList<>();
         List<Map<String, Object>> references = new ArrayList<>();
 
-        // 1. Router 分类（同步，qwen-flash）
+        // 4. Router 分类（同步，qwen-flash）
         RouterResult routerResult;
         try {
             routerResult = reviewRouter.route(userInput);
@@ -125,11 +169,12 @@ public class ChatService {
         trace.add(routerTrace);
 
         Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("sessionId", effectiveSessionId);
         meta.put("routerType", taskType.name());
         meta.put("routerRaw", routerResult.getRawResponse());
         meta.put("routerCostMs", routerResult.getCostMs());
 
-        // 2. 根据分类准备 systemPrompt 和 references
+        // 5. 根据分类准备 systemPrompt 和 references
         String systemPrompt;
         switch (taskType) {
             case CHITCHAT -> {
@@ -162,6 +207,9 @@ public class ChatService {
                 long total = System.currentTimeMillis() - start;
                 Map<String, Object> done = new LinkedHashMap<>();
                 done.put("totalCostMs", total);
+                // REVIEW 引导也双写落库
+                chatMemoryService.saveAssistantMessage(effectiveSessionId, guide, taskType.name(), null, total);
+                chatSessionService.incrementMessageCount(effectiveSessionId);
                 return Flux.just(
                         ChatStreamEvent.meta(meta),
                         ChatStreamEvent.token(guide),
@@ -174,34 +222,61 @@ public class ChatService {
         meta.put("references", references);
         meta.put("trace", trace);
 
-        // 3. LLM 流式调用（glm-4.5-air）
+        // 6. LLM 流式调用（glm-4.5-air），带多轮历史
         final String finalSystemPrompt = systemPrompt;
         long llmStart = System.currentTimeMillis();
 
-        // 把 LLM 步骤先加入 trace（token 完成后更新 costMs）
         Map<String, Object> llmTrace = traceStep("LLM", "ChatClient.stream() (glm-4.5-air)", 0);
         llmTrace.put("model", "glm-4.5-air (流式)");
         llmTrace.put("systemPrompt", finalSystemPrompt);
         llmTrace.put("userPrompt", userInput);
+        llmTrace.put("historyRounds", history.isEmpty() ? 0 : (history.size() - 1) / 2);
+        llmTrace.put("memorySource", "Redis+MySQL");
         llmTrace.put("status", "streaming");
         trace.add(llmTrace);
 
+        // 构建多轮 messages：历史消息 + 本轮 user（已含在 history 末尾）
+        List<Message> messages = buildMessagesForLlm(history);
+
+        // 累积完整 assistant 回复，流结束后落库
+        StringBuilder assistantReply = new StringBuilder();
+
         Flux<String> tokenFlux = chatClient.prompt()
                 .system(finalSystemPrompt)
-                .user(userInput)
+                .messages(messages)
                 .stream()
                 .content();
 
+        final String finalSessionId = effectiveSessionId;
+        final TaskType finalTaskType = taskType;
+
         return Flux.concat(
                 Flux.just(ChatStreamEvent.meta(meta)),
-                // 输出护栏：每个 token 经脱敏后再发前端（覆盖完整 token 内的敏感串）
-                tokenFlux.map(t -> ChatStreamEvent.token(outputGuardrail.sanitize(t).sanitized()))
+                // 输出护栏：每个 token 经脱敏后再发前端
+                tokenFlux.map(t -> {
+                    String sanitized = outputGuardrail.sanitize(t).sanitized();
+                    assistantReply.append(sanitized);
+                    return ChatStreamEvent.token(sanitized);
+                })
                         .doOnComplete(() -> {
                             long llmCost = System.currentTimeMillis() - llmStart;
                             llmTrace.put("costMs", llmCost);
                             llmTrace.put("status", "done");
-                            // 注意：meta 已经发出，无法再更新 trace；这里仅用于日志
-                            log.info("[ChatService] LLM 流式完成, cost={}ms", llmCost);
+                            // 双写落库 assistant 回复（Redis 滑动窗口 + MySQL 全量）
+                            try {
+                                String refsJson = references.isEmpty() ? null : objectMapper.writeValueAsString(references);
+                                chatMemoryService.saveAssistantMessage(
+                                        finalSessionId,
+                                        assistantReply.toString(),
+                                        finalTaskType.name(),
+                                        refsJson,
+                                        llmCost
+                                );
+                                chatSessionService.incrementMessageCount(finalSessionId);
+                            } catch (Exception e) {
+                                log.error("[ChatService] 保存助手消息失败, sessionId={}", finalSessionId, e);
+                            }
+                            log.info("[ChatService] LLM 流式完成, cost={}ms, sessionId={}", llmCost, finalSessionId);
                         })
                         .onErrorResume(e -> {
                             log.error("[ChatService] LLM 流式失败", e);
@@ -211,13 +286,34 @@ public class ChatService {
                     long total = System.currentTimeMillis() - start;
                     Map<String, Object> done = new LinkedHashMap<>();
                     done.put("totalCostMs", total);
-                    // 在 DONE 事件里返回最终的 trace（含 LLM 完整耗时）
-                    Map<String, Object> finalTrace = new LinkedHashMap<>();
-                    finalTrace.put("trace", trace);
-                    done.putAll(finalTrace);
+                    done.put("trace", trace);
                     return Flux.just(ChatStreamEvent.done(done));
                 })
         );
+    }
+
+    /**
+     * 把历史消息转换为 Spring AI 的 Message 列表。
+     * 历史列表已按时间正序，最后一条是本轮 user 消息。
+     */
+    private List<Message> buildMessagesForLlm(List<ChatMessage> history) {
+        List<Message> messages = new ArrayList<>();
+        // 跳过最后一条（本轮 user 消息），因为 Spring AI 会通过 .user() 单独传入
+        // 这里保留历史多轮对话，让 LLM 看到上下文
+        for (int i = 0; i < history.size() - 1; i++) {
+            ChatMessage m = history.get(i);
+            if ("user".equals(m.getRole())) {
+                messages.add(new UserMessage(m.getContent()));
+            } else if ("assistant".equals(m.getRole())) {
+                messages.add(new AssistantMessage(m.getContent()));
+            }
+        }
+        // 末尾加上本轮 user 消息
+        if (!history.isEmpty()) {
+            ChatMessage last = history.get(history.size() - 1);
+            messages.add(new UserMessage(last.getContent()));
+        }
+        return messages;
     }
 
     /** trace 单步 */

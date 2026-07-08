@@ -149,10 +149,13 @@ public class ReviewReportService {
 
     /**
      * 根据 taskId 查询完整报告（含 issue 列表）。
+     *
+     * <p>使用 JOIN FETCH 一次性加载 issues，避免 Controller 层
+     * 触发懒加载导致 LazyInitializationException。
      */
     @Transactional(readOnly = true)
     public ReviewRecord getReportByTaskId(String taskId) {
-        return recordRepository.findByTaskId(taskId).orElse(null);
+        return recordRepository.findWithIssuesByTaskId(taskId).orElse(null);
     }
 
     /**
