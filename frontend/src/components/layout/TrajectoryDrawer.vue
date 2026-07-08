@@ -1,42 +1,60 @@
 <template>
-  <aside class="side-pane" :data-open="state.sideOpen ? 'true' : 'false'">
-    <div class="side-pane__inner">
-      <header class="side-pane__head">
-        <div>
-          <h3 class="side-pane__title">数据传输轨迹</h3>
-          <p class="side-pane__sub">{{ subtitle }}</p>
-        </div>
-        <button class="btn btn--icon btn--ghost" @click="state.sideOpen = false">×</button>
-      </header>
+  <!-- 遮罩（移动端） -->
+  <div class="drawer-mask" :data-show="state.sideOpen ? 'true' : 'false'" @click="state.sideOpen = false"></div>
 
-      <div class="side-pane__toolbar">
-        <span class="pill pill--info">{{ steps.length }} 步</span>
-        <span class="pill">{{ statusLabel }}</span>
-        <button class="btn btn--ghost btn--sm" title="手动刷新" @click="refresh">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
-        </button>
+  <aside class="app-drawer" :data-open="state.sideOpen ? 'true' : 'false'">
+    <!-- 抽屉头 -->
+    <header class="app-drawer__head">
+      <div>
+        <h3 class="app-drawer__title">数据传输轨迹</h3>
+        <p class="app-drawer__sub">{{ subtitle }}</p>
       </div>
+      <button class="btn btn--ghost btn--icon btn--sm" @click="state.sideOpen = false" title="关闭">
+        <BaseIcon name="x" :size="16" />
+      </button>
+    </header>
 
+    <!-- 工具栏 -->
+    <div class="traj-toolbar">
+      <span class="pill pill--blue">{{ steps.length }} 步</span>
+      <span class="pill">{{ statusLabel }}</span>
+      <div style="flex:1;"></div>
+      <button class="btn btn--ghost btn--sm" title="手动刷新" @click="refresh">
+        <BaseIcon name="refresh-cw" :size="13" />
+      </button>
+    </div>
+
+    <!-- 轨迹列表 -->
+    <div class="app-drawer__body">
       <div class="traj-list" ref="trajListRef">
         <div v-if="steps.length === 0" class="traj-empty">
-          <span class="traj-empty__mark">∅</span>
-          <p>暂无执行轨迹</p>
-          <span>发起审查或发送聊天消息后，每一步数据传输会按时间顺序展开</span>
+          <span class="traj-empty__icon">
+            <BaseIcon name="activity" :size="22" />
+          </span>
+          <p class="traj-empty__title">暂无执行轨迹</p>
+          <span class="traj-empty__desc">发起审查或发送聊天消息后，每一步数据传输会按时间顺序展开</span>
         </div>
+
         <template v-for="(item, i) in steps" :key="i">
           <!-- 多轮对话分隔线 -->
           <div v-if="item.sep" class="traj-sep">{{ item.sep }}</div>
+
           <!-- 步骤卡片 -->
           <div v-else class="step" :data-expanded="item.expanded ? 'true' : 'false'">
             <div class="step__head" @click="item.expanded = !item.expanded">
               <span class="step__round">{{ item.round ?? (i + 1) }}</span>
-              <span class="step__action" :data-tool="item.action" :data-stage="item.stage">{{ item.action || item.stage }}</span>
+              <span class="step__action" :data-tool="item.action" :data-stage="item.stage">
+                {{ item.action || item.stage }}
+              </span>
               <span v-if="item.toolDesc" class="step__tooldesc">{{ item.toolDesc }}</span>
               <span class="step__cost">{{ item.costMs ?? 0 }} ms</span>
-              <span class="step__chev">›</span>
+              <span class="step__chev">
+                <BaseIcon name="chevron-right" :size="14" />
+              </span>
             </div>
+
             <div class="step__body">
-              <!-- review 模式：prompt/raw/thought/actionInput/observation -->
+              <!-- review 模式 -->
               <template v-if="item.mode === 'review'">
                 <div v-if="item.promptSentToLlm" class="block block--input">
                   <div class="block__head"><span class="block__dot"></span>发给 LLM 的完整 Prompt</div>
@@ -50,8 +68,7 @@
                   <div class="block__head"><span class="block__dot"></span>LLM 思考 (Thought)</div>
                   <div class="block__body">{{ item.thought }}</div>
                 </div>
-                <!-- actionInput KV 表格 -->
-                <div class="block block--input">
+                <div class="block block--action">
                   <div class="block__head"><span class="block__dot"></span>工具参数 (ActionInput)</div>
                   <div class="block__body kv-table">
                     <template v-if="item.actionInputObj">
@@ -63,14 +80,13 @@
                     <div v-else class="kv"><span class="kv__v">{{ item.actionInput || '(空)' }}</span></div>
                   </div>
                 </div>
-                <!-- observation -->
                 <div class="block block--obs">
                   <div class="block__head"><span class="block__dot"></span>工具返回 (Observation)</div>
                   <div class="block__body" :class="{ 'is-json': item.obsIsJson }">{{ item.obsDisplay }}</div>
                 </div>
               </template>
 
-              <!-- chat 模式：KV 块 + 各字段 -->
+              <!-- chat 模式 -->
               <template v-else>
                 <div v-if="item.basicInfo" class="block block--input">
                   <div class="block__head"><span class="block__dot"></span>基本信息</div>
@@ -132,31 +148,35 @@
                 </div>
               </template>
             </div>
+
             <!-- observation 摘要 -->
             <div v-if="item.summary" class="step__summary" v-html="item.summary"></div>
           </div>
         </template>
       </div>
-
-      <footer class="side-pane__foot">
-        <span class="kv"><span class="kv__k">API</span><span class="kv__v">/api → localhost:8080</span></span>
-      </footer>
     </div>
+
+    <!-- 抽屉底 -->
+    <footer class="app-drawer__foot">
+      <span class="kv">
+        <span class="kv__k">API</span>
+        <span class="kv__v">/api → localhost:8080</span>
+      </span>
+    </footer>
   </aside>
 </template>
 
 <script setup>
-import { ref, reactive, watch, nextTick } from 'vue'
-import { state, showToast, api, tryJson, fmtJson, escapeHtml } from '../composables/useApi.js'
+import { ref, reactive, nextTick } from 'vue'
+import { state, showToast, api, tryJson, fmtJson, escapeHtml } from '../../composables/useApi.js'
+import BaseIcon from '../BaseIcon.vue'
 
 const trajListRef = ref(null)
 
-// 步骤列表（响应式，支持 review 和 chat 双模式）
 const steps = ref([])
 const subtitle = ref('每一轮 LLM 思考 · 工具调用 · 返回数据')
 const statusLabel = ref('未启动')
 
-// 工具中文说明
 const TOOL_DESCRIPTIONS = {
   GitDiffTool: '拉取 commit 代码变更',
   AstAnalysisTool: 'AST 静态分析',
@@ -172,7 +192,7 @@ const STAGE_DESCRIPTIONS = {
   LLM: '流式生成回复（glm-4.5-air）',
 }
 
-// ============== Review 模式：渲染审查轨迹 ==============
+// ============== Review 模式 ==============
 let lastTrajLen = 0
 
 function renderReviewTraj(data) {
@@ -187,14 +207,12 @@ function renderReviewTraj(data) {
     return
   }
 
-  // 增量渲染：只追加新增的步骤
   if (rawSteps.length > lastTrajLen) {
     for (let i = lastTrajLen; i < rawSteps.length; i++) {
       steps.value.push(buildReviewStep(rawSteps[i], i === rawSteps.length - 1))
     }
     lastTrajLen = rawSteps.length
   } else if (rawSteps.length < lastTrajLen) {
-    // 重置（新任务）
     steps.value = rawSteps.map(s => buildReviewStep(s, false))
     lastTrajLen = rawSteps.length
   }
@@ -247,14 +265,13 @@ function summarizeObservation(action, observation) {
   return ''
 }
 
-// ============== Chat 模式：渲染聊天轨迹 ==============
+// ============== Chat 模式 ==============
 function renderChatTraj(ev) {
   if (state.trajMode !== 'chat') return
   subtitle.value = '数据传输链路 · Router → RAG → LLM'
   const trace = ev.trace || []
   statusLabel.value = ev.routerType || '—'
 
-  // 新一轮对话加分隔线
   if (steps.value.length > 0 && trace.length > 0 && trace[0].stage === 'Router') {
     steps.value.push(reactive({ sep: `── 对话 ${Math.floor(steps.value.length / 3) + 1} ──` }))
   }
@@ -335,6 +352,5 @@ function scrollToBottom() {
   })
 }
 
-// 暴露方法给父组件调用
 defineExpose({ renderReviewTraj, renderChatTraj, resetTrajectory })
 </script>

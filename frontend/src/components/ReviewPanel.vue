@@ -1,204 +1,324 @@
 <template>
-  <section class="tab-panel">
+  <section>
     <!-- ============== Card 1：发起审查 ============== -->
     <div class="card">
       <header class="card__head">
-        <span class="tag">REVIEW</span>
-        <h2 class="card__title">发起审查</h2>
-        <span class="card__hint">选择仓库 + commit，或手动填写 repoUrl + commitId</span>
+        <div class="card__title">
+          <span class="tag tag--blue">REVIEW</span>
+          <span>发起审查</span>
+        </div>
+        <span class="card__hint">选择仓库 + commit，或手动填写</span>
       </header>
-      <div class="review-form">
-        <!-- 仓库选择 + 加载 commits -->
-        <div class="select-row">
-          <label class="field" style="flex:1;">
-            <span class="field__label">仓库</span>
-            <select class="field__input field__select" v-model="reviewRepoId" @change="onRepoChange">
-              <option value="">-- 请选择仓库 --</option>
-              <option v-for="r in state.repos" :key="r.id" :value="String(r.id)">
-                {{ r.name }} ({{ r.type || 'REMOTE' }})
-              </option>
-            </select>
-          </label>
-          <div class="field" style="flex:0 0 auto;">
-            <button class="btn btn--ghost btn--sm" @click="loadCommits">加载 commits</button>
+      <div class="card__body">
+        <!-- 仓库列表（可滚动，仓库多时不会撑爆布局） -->
+        <div class="repo-picker">
+          <div class="repo-picker__head">
+            <label class="field__label">
+              选择仓库
+              <span class="pill pill--blue" style="margin-left:6px;">{{ state.repos.length }}</span>
+            </label>
+            <div class="repo-picker__actions">
+              <button class="btn btn--ghost btn--sm" title="刷新仓库列表" @click="loadRepos">
+                <BaseIcon name="refresh-cw" :size="13" />
+              </button>
+              <button class="btn btn--ghost btn--sm" title="注册新仓库" @click="showRepoModal = true">
+                <BaseIcon name="plus" :size="14" />
+                <span>注册</span>
+              </button>
+            </div>
+          </div>
+          <div class="repo-picker__list">
+            <div v-if="state.repos.length === 0" class="empty" style="padding:20px;">
+              <span class="empty__desc">暂无仓库，点击「注册」添加</span>
+            </div>
+            <div
+              v-for="r in state.repos"
+              :key="r.id"
+              class="repo-picker__item"
+              :class="{ 'is-selected': reviewRepoId === String(r.id) }"
+              @click="selectRepo(r)"
+              :title="r.url"
+            >
+              <span class="repo-status__dot" :data-status="r.status || 'UNCLONED'" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>
+              <span class="repo-picker__name">{{ r.name }}</span>
+              <span class="pill">{{ r.type || 'REMOTE' }}</span>
+              <span class="repo-status" :data-status="r.status || 'UNCLONED'" style="font-size:11px;">
+                {{ r.status || 'UNCLONED' }}
+              </span>
+            </div>
           </div>
         </div>
 
+        <!-- 加载 commits 按钮 -->
+        <div class="form-actions" style="margin-top:12px;">
+          <button class="btn btn--ghost btn--sm" :disabled="!reviewRepoId" @click="loadCommits">
+            <BaseIcon name="git-commit" :size="13" />
+            <span>加载 commits</span>
+          </button>
+          <span v-if="selectedRepoName" style="font-size:12px;color:var(--fg-muted);align-self:center;">
+            当前: <b style="color:var(--primary);">{{ selectedRepoName }}</b>
+          </span>
+        </div>
+
         <!-- commit 列表 -->
-        <div class="commit-box">
-          <div v-if="commits.length === 0" class="commit-empty">
-            {{ commitsLoaded ? '无 commit 记录' : '选择仓库并点击"加载 commits"' }}
+        <div class="commit-list" style="margin-top:8px;">
+          <div v-if="commits.length === 0" class="empty" style="padding:20px;">
+            <span class="empty__desc">{{ commitsLoaded ? '无 commit 记录' : '选择仓库并点击「加载 commits」' }}</span>
           </div>
           <div v-for="c in commits" :key="c.commitId"
             class="commit-item" :class="{ 'is-selected': selectedCommitId === c.commitId }"
             @click="selectCommit(c.commitId)">
             <div class="commit-item__id">{{ shortId(c.commitId) }}</div>
-            <div class="commit-item__msg" :title="c.shortMessage || ''">{{ c.shortMessage || '' }}</div>
+            <div class="commit-item__msg" :title="c.shortMessage || ''">{{ c.shortMessage || '(无提交信息)' }}</div>
             <div class="commit-item__time">{{ fmtTime(c.commitTime) }}</div>
           </div>
         </div>
 
         <!-- 手动填写 -->
-        <div class="select-row">
-          <label class="field" style="flex:1;">
-            <span class="field__label">手动 repoUrl</span>
-            <input class="field__input" v-model="manualRepoUrl" placeholder="https://github.com/your/repo.git">
-          </label>
-          <label class="field" style="flex:0 0 220px;">
-            <span class="field__label">手动 commitId</span>
-            <input class="field__input" v-model="manualCommitId">
-          </label>
+        <div class="form-row" style="margin-top:16px;">
+          <div class="field" style="flex:1;">
+            <label class="field__label">手动 repoUrl</label>
+            <input class="input" v-model="manualRepoUrl" placeholder="https://github.com/your/repo.git">
+          </div>
+          <div class="field" style="flex:0 0 220px;">
+            <label class="field__label">手动 commitId</label>
+            <input class="input" v-model="manualCommitId" placeholder="commit sha">
+          </div>
         </div>
 
-        <div class="form__actions">
+        <div class="form-actions">
           <button class="btn btn--primary" :disabled="starting" @click="startReview">
-            <span class="btn__txt">{{ starting ? '启动中…' : '启动 Agent' }}</span>
-            <span class="btn__arrow">→</span>
+            <BaseIcon name="play" :size="13" />
+            <span>{{ starting ? '启动中…' : '启动 Agent' }}</span>
           </button>
-          <button class="btn btn--ghost" @click="resetReview">重置</button>
+          <button class="btn btn--ghost" @click="resetReview">
+            <BaseIcon name="refresh-cw" :size="13" />
+            <span>重置</span>
+          </button>
         </div>
 
-        <!-- Agent 启动说明 -->
-        <details class="agent-explainer">
+        <!-- Agent 流程说明 -->
+        <details class="details-collapse" style="margin-top:16px;">
           <summary>Agent 执行流程说明</summary>
-          <div class="agent-explainer__body">
-            <p>启动后 Agent 进入 <b>ReAct 循环</b>，按 thought → action → observation 迭代：</p>
-            <ol>
+          <div class="agent-flow">
+            <p style="margin:0 0 8px; font-size:13px; color:var(--fg-secondary);">
+              启动后 Agent 进入 <b style="color:var(--primary);">ReAct 循环</b>，按 thought → action → observation 迭代：
+            </p>
+            <ol class="agent-flow__list">
               <li><b>GitDiffTool</b> · 拉取目标 commit 的代码变更</li>
               <li><b>AstAnalysisTool</b> · AST 静态分析，定位潜在缺陷</li>
               <li><b>RagSearchTool</b> · RAG 检索 Java 编码规范与示例代码</li>
+              <li><b>RuleMatchTool</b> · 批量规则匹配</li>
+              <li><b>SimilarCodeTool</b> · 相似代码检索</li>
               <li><b>Finish</b> · 汇总结论，输出结构化审查报告</li>
             </ol>
-            <p>右侧轨迹面板实时展示每一步的 Prompt、LLM 思考与工具返回。</p>
+            <p style="margin:8px 0 0; font-size:12px; color:var(--fg-muted);">
+              右侧轨迹抽屉实时展示每一步的 Prompt、LLM 思考与工具返回。
+            </p>
           </div>
         </details>
       </div>
     </div>
 
-    <!-- ============== Card 2：任务状态（历史报告查看时隐藏） ============== -->
-    <div class="card" v-show="state.currentTaskId && statusData">
+    <!-- ============== Card 2：任务状态 ============== -->
+    <div class="card" v-if="state.currentTaskId && statusData">
       <header class="card__head">
-        <span class="tag">STATUS</span>
-        <h2 class="card__title">任务状态</h2>
+        <div class="card__title">
+          <span class="tag tag--blue">STATUS</span>
+          <span>任务状态</span>
+        </div>
         <span class="card__hint">{{ taskMeta }}</span>
       </header>
-      <div class="status-grid">
-        <div class="metric">
-          <span class="metric__label">状态</span>
-          <span class="metric__value metric__value--status" :data-status="statusData?.status || 'PENDING'">
-            {{ statusData?.status || 'PENDING' }}
-          </span>
+      <div class="card__body">
+        <div class="status-grid">
+          <div class="metric">
+            <span class="metric__label">状态</span>
+            <span class="status-tag" :data-status="statusData?.status || 'PENDING'">
+              <span class="status-tag__dot"></span>
+              {{ statusData?.status || 'PENDING' }}
+            </span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">轮次</span>
+            <span class="metric__value">{{ statusData?.currentRound ?? 0 }}</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">步数</span>
+            <span class="metric__value">{{ statusData?.totalSteps ?? 0 }}</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">动作</span>
+            <span class="metric__value metric__value--mono">{{ statusData?.latestStep?.action || '—' }}</span>
+          </div>
         </div>
-        <div class="metric">
-          <span class="metric__label">轮次</span>
-          <span class="metric__value">{{ statusData?.currentRound ?? 0 }}</span>
+
+        <div class="progress" :data-status="statusData?.status || 'PENDING'">
+          <div class="progress__bar" :style="{ width: progressPct + '%' }" :data-status="statusData?.status || 'PENDING'"></div>
         </div>
-        <div class="metric">
-          <span class="metric__label">步数</span>
-          <span class="metric__value">{{ statusData?.totalSteps ?? 0 }}</span>
+
+        <div class="latest-thought" v-if="statusData?.latestStep?.thought">
+          <div class="latest-thought__label">
+            <BaseIcon name="zap" :size="11" />
+            <span>最新思考</span>
+          </div>
+          <p class="latest-thought__text">{{ statusData.latestStep.thought }}</p>
         </div>
-        <div class="metric">
-          <span class="metric__label">动作</span>
-          <span class="metric__value metric__value--mono">{{ statusData?.latestStep?.action || '—' }}</span>
-        </div>
-      </div>
-      <div class="progress">
-        <div class="progress__bar" :style="{ width: progressPct + '%', background: progressColor }"></div>
-      </div>
-      <div class="latest" v-if="statusData?.latestStep?.thought">
-        <span class="latest__cap">最新思考</span>
-        <p class="latest__txt">{{ statusData.latestStep.thought }}</p>
       </div>
     </div>
 
     <!-- ============== Card 3：审查报告 ============== -->
-    <div class="card" v-show="resultData || reportData">
+    <div class="card" v-if="resultData || reportData">
       <header class="card__head">
-        <span class="tag">REPORT</span>
-        <h2 class="card__title">审查报告</h2>
+        <div class="card__title">
+          <span class="tag tag--green">REPORT</span>
+          <span>审查报告</span>
+        </div>
         <span class="card__hint">{{ reportMeta }}</span>
       </header>
-
-      <!-- issue 统计条 -->
-      <div class="issue-stats" v-if="reportData && issueCount > 0">
-        <span v-for="s in issueStatsList" :key="s.sev"
-          class="issue-stat" :class="'sev--' + s.sev">
-          <span class="issue-stat__dot"></span>{{ SEV_LABEL[s.sev] }}
-          <span class="issue-stat__n">{{ s.count }}</span>
-        </span>
-      </div>
-
-      <!-- issue 分组（details/summary 折叠） -->
-      <div class="issue-groups" v-if="reportData">
-        <div v-if="issueGroupsList.length === 0" class="issue-empty">
-          未解析出结构化问题（查看下方原始报告）
+      <div class="card__body">
+        <!-- issue 统计条 -->
+        <div class="issue-summary" v-if="reportData && issueCount > 0">
+          <span v-for="s in issueStatsList" :key="s.sev"
+            class="issue-summary__item" :data-sev="s.sev">
+            <span class="issue-summary__dot"></span>
+            <span>{{ SEV_LABEL[s.sev] }}</span>
+            <span class="issue-summary__n">{{ s.count }}</span>
+          </span>
         </div>
-        <details v-for="g in issueGroupsList" :key="g.sev"
-          class="issue-group" :class="'sev--' + g.sev" open>
-          <summary class="issue-group__head">
-            <span class="issue-group__title" :class="'sev--' + g.sev">{{ SEV_LABEL[g.sev] }} · {{ g.sev }}</span>
-            <span class="issue-group__count">{{ g.list.length }}</span>
-            <span class="issue-group__chev"></span>
-          </summary>
-          <div class="issue-group__body">
-            <div v-for="(it, i) in g.list" :key="i" class="issue-item">
-              <div class="issue-item__loc">
-                <span v-if="it.filePath" class="issue-item__file">{{ it.filePath }}</span>
-                <span v-if="it.lineNumber != null" class="issue-item__line">L{{ it.lineNumber }}</span>
-                <span v-if="it.ruleType" class="issue-item__rule">{{ it.ruleType }}</span>
-              </div>
-              <div class="issue-item__msg">{{ it.message || '' }}</div>
-              <div v-if="it.suggestion" class="issue-item__sug">{{ it.suggestion }}</div>
-            </div>
+
+        <!-- issue 分组 -->
+        <div v-if="reportData">
+          <div v-if="issueGroupsList.length === 0" class="empty" style="padding:24px;">
+            <span class="empty__icon"><BaseIcon name="inbox" :size="20" /></span>
+            <span class="empty__title">未解析出结构化问题</span>
+            <span class="empty__desc">请查看下方原始报告</span>
           </div>
+          <details v-for="g in issueGroupsList" :key="g.sev"
+            class="issue-group" open>
+            <summary class="issue-group__head">
+              <span class="issue-group__title" :data-sev="g.sev">
+                <span class="issue-summary__dot"></span>
+                {{ SEV_LABEL[g.sev] }} · {{ g.sev }}
+              </span>
+              <span class="issue-group__count">{{ g.list.length }}</span>
+              <span class="issue-group__chev"><BaseIcon name="chevron-down" :size="14" /></span>
+            </summary>
+            <div class="issue-group__body">
+              <div v-for="(it, i) in g.list" :key="i" class="issue-item">
+                <div class="issue-item__loc">
+                  <span v-if="it.filePath" class="issue-item__file">{{ it.filePath }}</span>
+                  <span v-if="it.lineNumber != null" class="issue-item__line">L{{ it.lineNumber }}</span>
+                  <span v-if="it.ruleType" class="issue-item__rule">{{ it.ruleType }}</span>
+                </div>
+                <div class="issue-item__msg">{{ it.message || '' }}</div>
+                <div v-if="it.suggestion" class="issue-item__suggestion">{{ it.suggestion }}</div>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- 原始报告 -->
+        <details class="details-collapse" style="margin-top:16px;">
+          <summary>原始报告</summary>
+          <pre class="raw-report">{{ resultText }}</pre>
         </details>
       </div>
-
-      <!-- 原始报告（details/summary 折叠） -->
-      <details class="result-raw">
-        <summary>原始报告</summary>
-        <div class="result">{{ resultText }}</div>
-      </details>
-
-      <div class="form__actions">
-        <button class="btn btn--ghost btn--sm" @click="reloadReport">刷新报告</button>
-      </div>
+      <footer class="card__foot">
+        <button class="btn btn--ghost btn--sm" @click="reloadReport">
+          <BaseIcon name="refresh-cw" :size="13" />
+          <span>刷新报告</span>
+        </button>
+      </footer>
     </div>
 
     <!-- ============== Card 4：审查历史 ============== -->
     <div class="card">
       <header class="card__head">
-        <span class="tag">HISTORY</span>
-        <h2 class="card__title">审查历史</h2>
+        <div class="card__title">
+          <span class="tag tag--gray">HISTORY</span>
+          <span>审查历史</span>
+        </div>
         <span class="card__hint">点击历史项可加载对应报告</span>
       </header>
-      <div class="form__actions">
-        <button class="btn btn--ghost btn--sm" :disabled="historyLoading" @click="loadHistory">
-          {{ historyLoading ? '加载中...' : '加载历史' }}
-        </button>
-      </div>
-      <div class="history-list">
-        <p v-if="historyList.length === 0" class="empty-hint">暂无审查记录</p>
-        <div v-for="r in historyList" :key="r.taskId" class="history-item" @click="loadHistoryReport(r.taskId)">
-          <div class="history-item__sev">
-            <template v-for="s in SEV_ORDER" :key="s">
-              <span v-if="(r[s.toLowerCase() + 'Count'] ?? 0) > 0"
-                :class="'sev--' + s" style="color:var(--fg)">
-                {{ s[0] }}{{ r[s.toLowerCase() + 'Count'] }}
-              </span>
-            </template>
-            <span v-if="noSev(r)" style="color:var(--fg-mute)">—</span>
-          </div>
-          <div class="history-item__main">
-            <div class="history-item__repo">{{ r.repoName || r.repoUrl || '未知仓库' }}</div>
-            <div class="history-item__meta">
-              {{ (r.commitId || '').slice(0, 8) }} · {{ r.issueCount ?? 0 }} 问题 · {{ r.totalSteps ?? 0 }} 步 · {{ fmtHistoryTime(r) }}
+      <div class="card__body">
+        <div class="form-actions" style="margin-top:0;">
+          <button class="btn btn--ghost btn--sm" :disabled="historyLoading" @click="loadHistory">
+            <BaseIcon name="refresh-cw" :size="13" />
+            <span>{{ historyLoading ? '加载中...' : '加载历史' }}</span>
+          </button>
+        </div>
+
+        <div v-if="historyList.length === 0" class="empty" style="padding:32px;">
+          <span class="empty__icon"><BaseIcon name="inbox" :size="20" /></span>
+          <span class="empty__title">暂无审查记录</span>
+          <span class="empty__desc">完成一次审查后，历史会显示在这里</span>
+        </div>
+
+        <div v-else style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+          <div v-for="r in historyList" :key="r.taskId" class="history-item" @click="loadHistoryReport(r.taskId)">
+            <div class="history-item__sev">
+              <template v-for="s in SEV_ORDER" :key="s">
+                <span v-if="(r[s.toLowerCase() + 'Count'] ?? 0) > 0" :data-sev="s">
+                  {{ s[0] }}{{ r[s.toLowerCase() + 'Count'] }}
+                </span>
+              </template>
+              <span v-if="noSev(r)" style="color:var(--fg-subtle); padding:2px 6px;">—</span>
+            </div>
+            <div class="history-item__main">
+              <div class="history-item__repo">{{ r.repoName || r.repoUrl || '未知仓库' }}</div>
+              <div class="history-item__meta">
+                {{ (r.commitId || '').slice(0, 8) }} · {{ r.issueCount ?? 0 }} 问题 · {{ r.totalSteps ?? 0 }} 步 · {{ fmtHistoryTime(r) }}
+              </div>
+            </div>
+            <div class="status-tag" :data-status="r.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED'">
+              <span class="status-tag__dot"></span>
+              {{ r.status }}
             </div>
           </div>
-          <div class="history-item__status"
-            :class="r.status === 'SUCCESS' ? 'sev--INFO' : 'sev--CRITICAL'">
-            {{ r.status }}
-          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============== 注册仓库 Modal ============== -->
+    <div v-if="showRepoModal" class="modal-mask" @click.self="showRepoModal = false">
+      <div class="modal">
+        <header class="modal__head">
+          <h3 class="modal__title">注册仓库</h3>
+          <button class="btn btn--ghost btn--icon btn--sm" @click="showRepoModal = false">
+            <BaseIcon name="x" :size="16" />
+          </button>
+        </header>
+        <div class="modal__body">
+          <form @submit.prevent="submitRepo">
+            <div class="field">
+              <label class="field__label">仓库名称 <span style="color:var(--danger)">*</span></label>
+              <input class="input" v-model="repoForm.name" placeholder="my-project" required>
+            </div>
+            <div class="field" style="margin-top:16px;">
+              <label class="field__label">仓库地址 <span style="color:var(--danger)">*</span></label>
+              <input class="input" v-model="repoForm.url" placeholder="https://github.com/your/repo.git" required>
+            </div>
+            <div class="form-row" style="margin-top:16px;">
+              <div class="field" style="flex:0 0 140px;">
+                <label class="field__label">类型</label>
+                <select class="select" v-model="repoForm.type">
+                  <option value="REMOTE">REMOTE</option>
+                  <option value="LOCAL">LOCAL</option>
+                </select>
+              </div>
+              <div class="field" style="flex:1;">
+                <label class="field__label">默认分支</label>
+                <input class="input" v-model="repoForm.defaultBranch" placeholder="main">
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn--ghost" type="button" @click="showRepoModal = false">取消</button>
+              <button class="btn btn--primary" type="submit">
+                <BaseIcon name="check" :size="14" />
+                <span>注册</span>
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -206,41 +326,80 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
-import { state, setConn, showToast, api, tryJson, fmtJson, esc, fmtTime, shortId } from '../composables/useApi.js'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
+import { state, setConn, showToast, api, tryJson, fmtJson, fmtTime, shortId } from '../composables/useApi.js'
+import BaseIcon from './BaseIcon.vue'
 
-// 严重度分组配置
 const SEV_ORDER = ['CRITICAL', 'MAJOR', 'MINOR', 'INFO']
 const SEV_LABEL = { CRITICAL: '严重', MAJOR: '主要', MINOR: '次要', INFO: '提示' }
 
-// 向父组件抛出轨迹更新事件（父组件转发到 TrajectoryPanel）
 const emit = defineEmits(['traj-update'])
 
 // ============== 组件内 ref 状态 ==============
-const selectedCommitId = ref(null)   // 当前选中的 commit
-const commits = ref([])              // commit 列表
-const commitsLoaded = ref(false)     // 是否已加载过 commit（区分空态文案）
-const manualRepoUrl = ref('')        // 手动填写的 repoUrl
-const manualCommitId = ref('')       // 手动填写的 commitId
-const reviewRepoId = ref('')         // 仓库 select 绑定（字符串 id）
-const statusData = ref(null)         // /review/{taskId}/status 返回
-const resultData = ref(null)         // /review/{taskId}/result 返回（内存结果）
-const reportData = ref(null)         // /review/{taskId}/report 返回（DB 结构化报告）
-const historyList = ref([])          // /review/history 返回
-const pollTimer = ref(null)          // 状态轮询定时器
-const trajTimer = ref(null)          // 轨迹轮询定时器
-// 辅助状态
-const starting = ref(false)          // 启动按钮 loading
-const historyLoading = ref(false)    // 历史按钮 loading
-const taskMeta = ref('')             // 状态卡片头部仓库@commit 文案
+const selectedCommitId = ref(null)
+const commits = ref([])
+const commitsLoaded = ref(false)
+const manualRepoUrl = ref('')
+const manualCommitId = ref('')
+const reviewRepoId = ref('')
+const statusData = ref(null)
+const resultData = ref(null)
+const reportData = ref(null)
+const historyList = ref([])
+const pollTimer = ref(null)
+const trajTimer = ref(null)
+const starting = ref(false)
+const historyLoading = ref(false)
+const taskMeta = ref('')
 
-// ============== 仓库选择同步 ==============
-// 侧边栏选中仓库时，同步到本组件的 select
+// 仓库注册 Modal
+const showRepoModal = ref(false)
+const repoForm = reactive({ name: '', url: '', type: 'REMOTE', defaultBranch: 'main' })
+
+// 当前选中的仓库名称（展示用）
+const selectedRepoName = computed(() => {
+  if (!reviewRepoId.value) return ''
+  const r = state.repos.find(x => String(x.id) === reviewRepoId.value)
+  return r?.name || ''
+})
+
+// ============== 仓库选择 ==============
+// 同步外部 selectedRepoId（兼容从仓库管理页跳转）
 watch(() => state.selectedRepoId, (id) => {
   if (id != null) reviewRepoId.value = String(id)
 }, { immediate: true })
 
-// 切换仓库时清空 commit 列表与已选 commit
+function selectRepo(r) {
+  reviewRepoId.value = String(r.id)
+  state.selectedRepoId = r.id
+  onRepoChange()
+}
+
+async function loadRepos() {
+  try {
+    setConn('running', 'LOADING')
+    state.repos = await api('/repo')
+    setConn('idle', 'API IDLE')
+  } catch (e) {
+    showToast('加载仓库失败: ' + e.message, 'error')
+    setConn('error', 'ERROR')
+  }
+}
+
+async function submitRepo() {
+  try {
+    setConn('running', 'SAVING')
+    await api('/repo', { method: 'POST', body: JSON.stringify({ ...repoForm }) })
+    showToast('注册成功', 'success')
+    showRepoModal.value = false
+    repoForm.name = ''; repoForm.url = ''; repoForm.type = 'REMOTE'; repoForm.defaultBranch = 'main'
+    await loadRepos()
+  } catch (e) {
+    showToast('注册失败: ' + e.message, 'error')
+    setConn('error', 'ERROR')
+  }
+}
+
 function onRepoChange() {
   selectedCommitId.value = null
   manualCommitId.value = ''
@@ -272,7 +431,6 @@ async function startReview() {
   let repoUrl, commitId, repoName
   const repoId = reviewRepoId.value
   if (repoId && selectedCommitId.value) {
-    // 走 by-repo
     commitId = selectedCommitId.value
   } else if (manualRepoUrl.value && manualCommitId.value) {
     repoUrl = manualRepoUrl.value.trim()
@@ -285,7 +443,6 @@ async function startReview() {
   starting.value = true
   setConn('running', 'STARTING')
   state.trajMode = 'review'
-  // 重置轨迹面板（通知父组件清空）
   emit('traj-update', { steps: [], status: 'PENDING' })
 
   try {
@@ -303,10 +460,8 @@ async function startReview() {
       })
     }
     state.currentTaskId = data.taskId
-    // 初始化状态展示
     statusData.value = { status: 'PENDING', currentRound: 0, totalSteps: 0 }
     taskMeta.value = (repoName || repoUrl || '') + ' @ ' + commitId
-    // 清空旧报告/结果
     resultData.value = null
     reportData.value = null
     showToast('任务已提交, taskId=' + shortId(state.currentTaskId), 'success')
@@ -335,12 +490,11 @@ function resetReview() {
   commitsLoaded.value = false
   taskMeta.value = ''
   state.trajMode = 'review'
-  // 通知轨迹面板清空
   emit('traj-update', { steps: [], status: 'PENDING' })
   setConn('idle', 'API IDLE')
 }
 
-// ============== 轮询：状态 + 轨迹 ==============
+// ============== 轮询 ==============
 async function pollOnce() {
   if (!state.currentTaskId || state.terminalStatus) return
   try {
@@ -367,37 +521,32 @@ async function pollTrajOnce() {
   } catch (e) { /* 轨迹查询失败静默忽略 */ }
 }
 
-// 成功后加载内存结果 + 轨迹 + DB 报告
 async function loadFinalResult() {
   try {
     const data = await api(`/review/${state.currentTaskId}/result`)
     resultData.value = data
     const traj = await api(`/review/${state.currentTaskId}/steps`)
     emit('traj-update', traj)
-    // 持久化报告可能比内存结果晚写入（异步落库），延迟拉取 DB 结构化报告
     await loadReport(state.currentTaskId)
   } catch (e) {
     showToast('获取结果失败: ' + e.message, 'error')
   }
 }
 
-// 从 DB 拉取结构化报告（含 issue 分组），失败则降级到内存结果展示
 async function loadReport(taskId) {
   try {
     const rep = await api(`/review/${taskId}/report`)
     reportData.value = rep
   } catch (e) {
-    // 报告尚未落库或 DB 异常，保持内存结果展示，不报错
     console.warn('加载 DB 报告失败，使用内存结果:', e.message)
   }
 }
 
 function startPolling() {
-  // 只清理定时器，不设置 terminalStatus（stopPolling 会设 true 导致轮询被跳过）
   if (pollTimer.value) { clearInterval(pollTimer.value); pollTimer.value = null }
   if (trajTimer.value) { clearInterval(trajTimer.value); trajTimer.value = null }
-  state.terminalStatus = false  // 重置终止标志
-  pollOnce()                    // 立即执行一次
+  state.terminalStatus = false
+  pollOnce()
   pollTimer.value = setInterval(pollOnce, 1500)
   trajTimer.value = setInterval(pollTrajOnce, 2000)
 }
@@ -417,7 +566,6 @@ function stopPolling(success, errMsg) {
 // ============== 报告 computeds ==============
 const issueCount = computed(() => reportData.value?.issueCount ?? 0)
 
-// 统计条数据（仅保留 count > 0 的严重度）
 const issueStatsList = computed(() => {
   if (!reportData.value) return []
   return SEV_ORDER
@@ -425,7 +573,6 @@ const issueStatsList = computed(() => {
     .filter(x => x.count > 0)
 })
 
-// 分组数据（仅保留有 issue 的严重度）
 const issueGroupsList = computed(() => {
   if (!reportData.value) return []
   const groups = reportData.value.issues || {}
@@ -434,7 +581,6 @@ const issueGroupsList = computed(() => {
     .filter(x => x.list.length > 0)
 })
 
-// 报告头部 meta 文案：优先 DB 报告，降级内存结果
 const reportMeta = computed(() => {
   if (reportData.value) {
     const rep = reportData.value
@@ -447,7 +593,6 @@ const reportMeta = computed(() => {
   return ''
 })
 
-// 原始报告文本：优先 DB 报告 finalResult，降级内存 result，尝试 JSON 美化
 const resultText = computed(() => {
   let txt = '(空)'
   if (reportData.value) txt = reportData.value.finalResult || '(空)'
@@ -456,7 +601,6 @@ const resultText = computed(() => {
   return parsed ? fmtJson(parsed) : txt
 })
 
-// 进度条百分比
 const progressPct = computed(() => {
   const status = statusData.value?.status || 'PENDING'
   if (status === 'SUCCESS' || status === 'FAILED') return 100
@@ -466,15 +610,6 @@ const progressPct = computed(() => {
   return 5
 })
 
-// 进度条颜色
-const progressColor = computed(() => {
-  const status = statusData.value?.status || 'PENDING'
-  if (status === 'FAILED') return 'linear-gradient(90deg, #b80040, #d93b4a)'
-  if (status === 'SUCCESS') return 'linear-gradient(90deg, #6aa6ff, #2f7cf6)'
-  return 'linear-gradient(90deg, #b87d20, #e08a1f)'
-})
-
-// 刷新报告
 async function reloadReport() {
   if (!state.currentTaskId) return
   showToast('刷新报告中...')
@@ -493,15 +628,12 @@ async function loadHistory() {
   }
 }
 
-// 点击历史项：加载对应报告 + 轨迹
 async function loadHistoryReport(taskId) {
   state.currentTaskId = taskId
-  // 历史报告展示在报告卡片，隐藏状态卡片
   statusData.value = null
   resultData.value = null
   reportData.value = null
   await loadReport(taskId)
-  // 同时加载轨迹（历史任务内存可能已丢，失败忽略）
   try {
     const traj = await api(`/review/${taskId}/steps`)
     state.trajMode = 'review'
@@ -509,19 +641,55 @@ async function loadHistoryReport(taskId) {
   } catch (_) { /* 历史轨迹不可用，忽略 */ }
 }
 
-// 历史项时间格式化
 function fmtHistoryTime(r) {
   return r.completedAt ? new Date(r.completedAt).toLocaleString('zh-CN') : (r.createdAt || '—')
 }
 
-// 历史项是否无任何严重度计数
 function noSev(r) {
   return SEV_ORDER.every(s => (r[s.toLowerCase() + 'Count'] ?? 0) === 0)
 }
 
-// ============== 组件卸载时清理定时器 ==============
 onUnmounted(() => {
   if (pollTimer.value) clearInterval(pollTimer.value)
   if (trajTimer.value) clearInterval(trajTimer.value)
 })
 </script>
+
+<style scoped>
+/* 仓库选择列表 */
+.repo-picker{
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.repo-picker__head{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+}
+.repo-picker__actions{ display: flex; gap: 6px; }
+.repo-picker__list{
+  max-height: 200px; overflow-y: auto;
+  padding: 4px;
+}
+.repo-picker__item{
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 8px var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  font-size: 13px;
+}
+.repo-picker__item:hover{ background: var(--bg-hover); }
+.repo-picker__item.is-selected{
+  background: var(--primary-bg);
+  color: var(--primary);
+}
+.repo-picker__item.is-selected .repo-picker__name{ color: var(--primary); font-weight: 500; }
+.repo-picker__name{
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg); font-weight: 500;
+}
+</style>
