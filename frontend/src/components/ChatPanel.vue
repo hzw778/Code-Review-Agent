@@ -3,13 +3,53 @@
     <div class="page-head">
       <div>
         <h2 class="page-head__title">智能问答</h2>
-        <p class="page-head__desc">Router 自动分类 · RAG 检索 · 流式回复</p>
+        <p class="page-head__desc">Router 自动分类 · RAG 检索 · 流式回复 · 多轮记忆</p>
       </div>
       <div class="page-head__actions">
-        <button class="btn btn--ghost btn--sm" @click="clearChat">
-          <BaseIcon name="trash" :size="13" />
-          <span>清空</span>
+        <button class="btn btn--ghost btn--sm" @click="showSessionList = !showSessionList">
+          <BaseIcon name="list" :size="13" />
+          <span>历史会话</span>
         </button>
+        <button class="btn btn--ghost btn--sm" @click="newConversation">
+          <BaseIcon name="plus" :size="14" />
+          <span>新对话</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 会话列表抽屉（折叠式） -->
+    <div class="chat-sessions" v-if="showSessionList">
+      <div class="chat-sessions__head">
+        <span class="chat-sessions__title">历史会话</span>
+        <button class="btn btn--ghost btn--icon btn--sm" @click="showSessionList = false">
+          <BaseIcon name="x" :size="14" />
+        </button>
+      </div>
+      <div class="chat-sessions__list">
+        <div v-if="sessions.length === 0" class="chat-sessions__empty">
+          暂无历史会话
+        </div>
+        <div
+          v-for="s in sessions"
+          :key="s.sessionId"
+          class="chat-session-item"
+          :class="{ 'is-active': state.currentChatSessionId === s.sessionId }"
+          @click="switchSession(s.sessionId)"
+        >
+          <div class="chat-session-item__main">
+            <div class="chat-session-item__title">{{ s.title || '新对话' }}</div>
+            <div class="chat-session-item__meta">
+              {{ s.messageCount ?? 0 }} 条 · {{ fmtSessionTime(s.updatedAt) }}
+            </div>
+          </div>
+          <button
+            class="chat-session-item__del"
+            title="删除"
+            @click.stop="deleteSession(s.sessionId)"
+          >
+            <BaseIcon name="trash" :size="12" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -23,6 +63,7 @@
           </span>
           <h3 class="chat-empty__title">问点什么吧</h3>
           <p class="chat-empty__desc">支持闲聊、Java 规范问答、审查引导（Router 自动分类）</p>
+          <p class="chat-empty__desc" style="margin-top:4px;">已开启多轮记忆，最多保留最近 10 轮上下文</p>
         </div>
 
         <!-- 单条消息 -->
@@ -79,8 +120,8 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
-import { state, setConn, showToast, api, API_BASE, tryJson } from '../composables/useApi.js'
+import { ref, nextTick, onMounted } from 'vue'
+import { state, setConn, showToast, api, API_BASE, tryJson, setChatSessionId, clearChatSession, fmtTime } from '../composables/useApi.js'
 import BaseIcon from './BaseIcon.vue'
 
 const emit = defineEmits(['chat-traj'])
@@ -90,6 +131,10 @@ const inputText = ref('')
 const sending = ref(false)
 const chatBoxRef = ref(null)
 
+// 会话列表
+const showSessionList = ref(false)
+const sessions = ref([])
+
 function scrollToBottom() {
   nextTick(() => {
     const el = chatBoxRef.value
@@ -97,12 +142,92 @@ function scrollToBottom() {
   })
 }
 
-function clearChat() {
+// ============== 新对话 ==============
+function newConversation() {
+  clearChatSession()
   messages.value = []
-  state.trajMode = 'chat'
-  showToast('对话已清空', 'info')
+  showSessionList.value = false
+  showToast('已开启新对话', 'info')
 }
 
+// ============== 会话列表 ==============
+async function loadSessions() {
+  try {
+    sessions.value = await api('/chat/sessions')
+  } catch (e) {
+    showToast('加载会话列表失败: ' + e.message, 'error')
+  }
+}
+
+async function switchSession(sessionId) {
+  if (state.currentChatSessionId === sessionId) {
+    showSessionList.value = false
+    return
+  }
+  try {
+    const msgs = await api(`/chat/sessions/${sessionId}/messages`)
+    setChatSessionId(sessionId)
+    // 重建消息列表
+    messages.value = msgs.map(m => ({
+      role: m.role,
+      text: m.content || '',
+      meta: {
+        routerType: m.routerType || '',
+        routerCostMs: null,
+        totalCostMs: m.costMs ?? null,
+      },
+      references: parseRefs(m.references),
+      streaming: false,
+    }))
+    showSessionList.value = false
+    state.trajMode = 'chat'
+    showToast(`已加载会话（${msgs.length} 条消息）`, 'success')
+    scrollToBottom()
+  } catch (e) {
+    showToast('加载会话失败: ' + e.message, 'error')
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm('确认删除该会话?')) return
+  try {
+    await api(`/chat/sessions/${sessionId}`, { method: 'DELETE' })
+    showToast('已删除', 'success')
+    if (state.currentChatSessionId === sessionId) {
+      clearChatSession()
+      messages.value = []
+    }
+    await loadSessions()
+  } catch (e) {
+    showToast('删除失败: ' + e.message, 'error')
+  }
+}
+
+function parseRefs(refsStr) {
+  if (!refsStr) return []
+  try {
+    const arr = JSON.parse(refsStr)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+function fmtSessionTime(s) {
+  if (!s) return ''
+  try {
+    const d = new Date(s)
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+  } catch { return '' }
+}
+
+// ============== 清空对话（保留 sessionId） ==============
+function clearChat() {
+  messages.value = []
+  showToast('对话已清空（会话保留）', 'info')
+}
+
+// ============== 发送消息 ==============
 async function sendMessage() {
   const msg = inputText.value.trim()
   if (!msg || sending.value) return
@@ -133,7 +258,7 @@ async function sendMessage() {
     const res = await fetch(API_BASE + '/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-      body: JSON.stringify({ message: msg }),
+      body: JSON.stringify({ message: msg, sessionId: state.currentChatSessionId }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
 
@@ -159,6 +284,10 @@ async function sendMessage() {
           if (!ev) continue
 
           if (ev.type === 'META') {
+            // 保存 sessionId（后端返回的可能是新建的会话）
+            if (ev.sessionId) {
+              setChatSessionId(ev.sessionId)
+            }
             cur.meta.routerType = ev.routerType || ''
             if (ev.routerCostMs != null) cur.meta.routerCostMs = ev.routerCostMs
             if (ev.references) cur.references = ev.references
@@ -187,10 +316,98 @@ async function sendMessage() {
     sending.value = false
   }
 }
+
+// ============== 挂载时：如果有 sessionId，加载历史消息 ==============
+onMounted(async () => {
+  if (state.currentChatSessionId) {
+    try {
+      const msgs = await api(`/chat/sessions/${state.currentChatSessionId}/messages`)
+      messages.value = msgs.map(m => ({
+        role: m.role,
+        text: m.content || '',
+        meta: {
+          routerType: m.routerType || '',
+          routerCostMs: null,
+          totalCostMs: m.costMs ?? null,
+        },
+        references: parseRefs(m.references),
+        streaming: false,
+      }))
+      scrollToBottom()
+    } catch (e) {
+      // sessionId 失效，清空
+      clearChatSession()
+    }
+  }
+})
+
+// 暴露方法给父组件（切换到 chat tab 时刷新会话列表）
+defineExpose({ loadSessions })
 </script>
 
 <style scoped>
 .chat-ref__text{
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* 会话列表 */
+.chat-sessions{
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-4);
+  overflow: hidden;
+}
+.chat-sessions__head{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.chat-sessions__title{
+  font-size: 13px; font-weight: 600; color: var(--fg);
+}
+.chat-sessions__list{
+  max-height: 280px; overflow-y: auto;
+  padding: var(--sp-2);
+}
+.chat-sessions__empty{
+  padding: var(--sp-4);
+  text-align: center;
+  font-size: 13px; color: var(--fg-muted);
+}
+.chat-session-item{
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.chat-session-item:hover{ background: var(--bg-hover); }
+.chat-session-item.is-active{
+  background: var(--primary-bg);
+}
+.chat-session-item.is-active .chat-session-item__title{ color: var(--primary); }
+.chat-session-item__main{ flex: 1; min-width: 0; }
+.chat-session-item__title{
+  font-size: 13px; font-weight: 500; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-session-item__meta{
+  font-size: 11px; color: var(--fg-muted);
+  margin-top: 2px;
+}
+.chat-session-item__del{
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border: none; background: transparent;
+  color: var(--fg-subtle);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition);
+  opacity: 0;
+}
+.chat-session-item:hover .chat-session-item__del{ opacity: 1; }
+.chat-session-item__del:hover{ background: var(--danger-bg); color: var(--danger); }
 </style>

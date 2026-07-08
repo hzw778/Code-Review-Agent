@@ -14,7 +14,7 @@
     <main class="app-main">
       <div class="app-main__inner">
         <ReviewPanel v-show="activeTab === 'review'" @traj-update="onReviewTraj" />
-        <ChatPanel v-show="activeTab === 'chat'" @chat-traj="onChatTraj" />
+        <ChatPanel ref="chatPanelRef" v-show="activeTab === 'chat'" @chat-traj="onChatTraj" />
         <RepoPanel v-show="activeTab === 'repo'" />
       </div>
     </main>
@@ -49,6 +49,7 @@ import RepoPanel from './components/RepoPanel.vue'
 const activeTab = ref('review')
 const sidebarRef = ref(null)
 const trajPanelRef = ref(null)
+const chatPanelRef = ref(null)
 
 const toastIcon = computed(() => {
   if (state.toastType === 'success') return 'check-circle'
@@ -63,6 +64,8 @@ function onSwitchTab(key) {
   // 切换到非审查页时，轨迹模式跟随
   if (key === 'chat') {
     state.trajMode = 'chat'
+    // 切换到聊天页时加载会话列表
+    chatPanelRef.value?.loadSessions?.()
   } else if (key === 'review') {
     state.trajMode = 'review'
   }

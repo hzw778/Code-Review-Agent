@@ -22,6 +22,8 @@ const state = reactive({
   trajMode: 'review',
   // 侧边栏
   sideOpen: true,
+  // 聊天会话
+  currentChatSessionId: localStorage.getItem('chatSessionId') || null,
 })
 
 let toastTimer = null
@@ -66,6 +68,22 @@ function fmtTime(ms) {
 
 function shortId(id) { return id ? id.slice(0, 8) : '' }
 
+// ============== 聊天会话管理 ==============
+/** 设置当前会话 ID 并持久化到 localStorage */
+function setChatSessionId(id) {
+  state.currentChatSessionId = id
+  if (id) {
+    localStorage.setItem('chatSessionId', id)
+  } else {
+    localStorage.removeItem('chatSessionId')
+  }
+}
+
+/** 清空当前会话（新对话） */
+function clearChatSession() {
+  setChatSessionId(null)
+}
+
 // ============== API 请求封装 ==============
 async function api(path, opts = {}) {
   const url = API_BASE + path
@@ -81,4 +99,4 @@ async function api(path, opts = {}) {
 }
 
 // 导出单例
-export { state, setConn, showToast, tryJson, fmtJson, escapeHtml, esc, fmtTime, shortId, api, API_BASE }
+export { state, setConn, showToast, tryJson, fmtJson, escapeHtml, esc, fmtTime, shortId, api, API_BASE, setChatSessionId, clearChatSession }
