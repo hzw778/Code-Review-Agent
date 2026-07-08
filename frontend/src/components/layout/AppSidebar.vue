@@ -19,14 +19,6 @@
         </button>
       </div>
 
-      <!-- 底部说明区 -->
-      <div class="sidebar__section">
-        <div class="sidebar__label">说明</div>
-        <div class="sidebar__tip">
-          <BaseIcon name="info" :size="13" />
-          <span>仓库列表已移至「代码审查」页面，仓库管理请前往「仓库管理」</span>
-        </div>
-      </div>
     </nav>
 
     <!-- 底部版本信息 -->
