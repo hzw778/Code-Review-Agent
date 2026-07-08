@@ -1,6 +1,6 @@
 # Code Review Agent
 
-基于 Spring AI 2.0 + Java 17 的智能代码审查 Agent，支持 Git 仓库提交级审查（ReAct 循环 + 多工具协同）和代码规范问答（RAG 检索增强 + 流式输出）。
+基于 Spring AI 1.1.0 + Spring Boot 3.5.0 + Java 17 的智能代码审查 Agent，支持 Git 仓库提交级审查（ReAct 循环 + 多工具协同）和代码规范问答（RAG 检索增强 + 流式输出）。
 
 ## 核心特性
 
@@ -17,7 +17,7 @@
 
 | 层 | 技术 |
 |----|------|
-| 语言 / 框架 | Java 17 + Spring Boot 4.0.6 + Spring AI 2.0.0-RC1 |
+| 语言 / 框架 | Java 17 + Spring Boot 3.5.0 + Spring AI 1.1.0（降级到 3.5.0 兼容 ES 8.10.4） |
 | LLM | GLM-4.5-air（流式，面向用户）+ qwen-flash（非流式，Router 内部决策）+ text-embedding-v3（向量化） |
 | 静态分析 | JavaParser 3.25.8（AST 解析） |
 | Git | JGit 6.8.0（diff 获取） |
