@@ -23,24 +23,22 @@
           class="msg"
           :class="{ 'msg--user': m.role === 'user' }"
         >
-          <div>
-            <div class="msg__bubble">{{ m.text }}<span v-if="m.streaming" class="stream-cursor">▋</span>
-              <!-- 引用列表 -->
-              <div v-if="m.references && m.references.length > 0" class="chat-msg-refs">
-                <div class="chat-msg-refs__head">引用 ({{ m.references.length }})</div>
-                <div v-for="(r, ri) in m.references" :key="ri" class="chat-msg-ref">
-                  <span class="chat-msg-ref__kind" :data-kind="r.kind">{{ r.kind }}</span>
-                  <span>{{ r.title }} · score={{ (r.score || 0).toFixed(3) }}{{ r.lineNumbers ? ' · 行 ' + r.lineNumbers : '' }}</span>
-                </div>
+          <div class="msg__bubble">{{ m.text }}<span v-if="m.streaming" class="stream-cursor">▋</span>
+            <!-- 引用列表 -->
+            <div v-if="m.references && m.references.length > 0" class="chat-msg-refs">
+              <div class="chat-msg-refs__head">引用 ({{ m.references.length }})</div>
+              <div v-for="(r, ri) in m.references" :key="ri" class="chat-msg-ref">
+                <span class="chat-msg-ref__kind" :data-kind="r.kind">{{ r.kind }}</span>
+                <span>{{ r.title }} · score={{ (r.score || 0).toFixed(3) }}{{ r.lineNumbers ? ' · 行 ' + r.lineNumbers : '' }}</span>
               </div>
             </div>
-            <!-- assistant 消息的元信息（routerType / 耗时） -->
-            <div v-if="m.role === 'assistant'" class="msg__meta">
-              <span v-if="!m.meta.routerType" class="pill">连接中…</span>
-              <span v-if="m.meta.routerType" class="pill pill--info">{{ m.meta.routerType }}</span>
-              <span v-if="m.meta.routerCostMs != null" class="pill">router {{ m.meta.routerCostMs }}ms</span>
-              <span v-if="m.meta.totalCostMs != null" class="pill">total {{ m.meta.totalCostMs }}ms</span>
-            </div>
+          </div>
+          <!-- assistant 消息的元信息（routerType / 耗时） -->
+          <div v-if="m.role === 'assistant'" class="msg__meta">
+            <span v-if="!m.meta.routerType" class="pill">连接中…</span>
+            <span v-if="m.meta.routerType" class="pill pill--info">{{ m.meta.routerType }}</span>
+            <span v-if="m.meta.routerCostMs != null" class="pill">router {{ m.meta.routerCostMs }}ms</span>
+            <span v-if="m.meta.totalCostMs != null" class="pill">total {{ m.meta.totalCostMs }}ms</span>
           </div>
         </div>
       </div>

@@ -800,10 +800,11 @@ body{
 
 .msg{
   display:flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   animation: fadeIn .35s var(--ease) both;
 }
-.msg--user{ justify-content:flex-end; }
+.msg--user{ align-items: flex-end; }
 .msg--user .msg__bubble{
   background: var(--amber);
   color: var(--ink);
@@ -836,7 +837,6 @@ body{
   text-transform: uppercase;
 }
 .msg__meta .pill{ padding: 2px 8px; font-size:9px; }
-.msg--user .msg__meta{ justify-content:flex-end; }
 
 .chat-msg-refs{
   margin-top: 12px;
