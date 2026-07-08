@@ -64,7 +64,7 @@ public class ChatMessage {
     private String routerType;
 
     /** RAG 检索引用（JSON 字符串，仅 assistant 消息可能有值） */
-    @Column(columnDefinition = "TEXT")
+    @Column(name = "refs", columnDefinition = "TEXT")
     private String references;
 
     /** 本条消息耗时（毫秒，仅 assistant 消息有值） */
